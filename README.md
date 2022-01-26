@@ -9,3 +9,7 @@ Just to get started
    - https://www.biorxiv.org/content/10.1101/2020.12.04.410795v3
    - https://genome.cshlp.org/content/31/6/1097.short
    - https://www.nature.com/articles/s41592-021-01252-x
+
+## Tutorials
+Pytorch
+ - https://exxactcorp.com/blog/Deep-Learning/getting-started-with-pytorch-lightning
