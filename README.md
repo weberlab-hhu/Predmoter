@@ -11,5 +11,10 @@ Just to get started
    - https://www.nature.com/articles/s41592-021-01252-x
 
 ## Tutorials
-Pytorch
+Pytorch lightening
  - https://exxactcorp.com/blog/Deep-Learning/getting-started-with-pytorch-lightning
+Pytorch, intro on up
+ - https://www.tutorialspoint.com/pytorch/index.htm
+
+## ML course
+https://www.coursera.org/learn/machine-learning/home/welcome (there should somewhere be a free/without certificate version)
