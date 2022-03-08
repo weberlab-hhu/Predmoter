@@ -1,5 +1,14 @@
 # PromotorsPreds
 
+## Draft Titles / Ideas
+
+### Internships
+ - predicting ATACseq in plants with Deep Learning
+ - Deep Learning applied to promotor-associated next generation sequencing data
+
+### Masters thesis
+ - Cross species prediction of promotors and enhancers with Deep Learning
+
 ## Reading
 Just to get started
 
