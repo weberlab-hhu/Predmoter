@@ -1,6 +1,8 @@
 # LATER: maybe add python shebang
 import os
 import sys
+import random
+import numcodecs
 import warnings
 import logging
 import h5py
@@ -10,7 +12,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import TensorDataset, ConcatDataset, DataLoader
+from torch.utils.data import Dataset, ConcatDataset, DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.utilities.seed import seed_everything
@@ -23,7 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--input-directory', type=str, default='.', required=True,
                     help="Path to a directory containing one train, val and test directory with h5-files.")
 parser.add_argument('-o', '--output-dir', type=str, default='.')  # current directory
-parser.add_argument("-m", "--mode", type=str, default=None, required=True)
+parser.add_argument("-m", "--mode", type=str, default=None, required=True, help="Valid modes: train or predict.")
 parser.add_argument("--model", type=str, default=None, help="Path to the model to use for predictions.")
 parser.add_argument('-e', '--epochs', type=int, default=10)
 parser.add_argument('-b', '--batch-size', type=int, default=25)
@@ -39,7 +41,7 @@ parser.add_argument('--step', type=int, default=4)
 parser.add_argument('-lr', '--learning-rate', type=float, default=1e-3)
 parser.add_argument('--device', type=str, default="gpu")
 parser.add_argument('--num-devices', type=int, default=1)
-parser.add_argument('--seed', type=int, default=None, required=True)  # should stay required?/add rand seed and print it
+parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--checkpoint-path', type=str, default=".")
 parser.add_argument('--prefix', type=str, default="")
 # parser.add_argument('--version', action='version', version='%(prog)s 1.0')
@@ -47,7 +49,7 @@ args = parser.parse_args()
 
 # 1. Input stuff (own module in the future)
 # ------------------------------------------
-valid_modes = ["train", "predict"]
+valid_modes = ["train", "predict"]  # and test??? else it's a little confusing
 if args.mode not in valid_modes:
     sys.exit("ERROR: Valid modes are train or predict.")
 
@@ -56,36 +58,48 @@ if args.input_directory.endswith("/"):
 else:
     args.input_directory = args.input_directory + "/"
 
-seed_everything(seed=args.seed, workers=True)  # seed for reproducibility
+# maybe put this under train, not needed for test/predict?
+if args.seed is None:
+    seed = random.randint(1, 1000)
+    seed_everything(seed=seed, workers=True)  # seed for reproducibility
+    print(f"A seed wasn't provided by the user. The random seed is: {seed}.")
+else:
+    seed_everything(seed=args.seed, workers=True)
+
+compressor = numcodecs.blosc.Blosc(cname='blosclz', clevel=4, shuffle=2)
 
 
-def create_dataset(h5_file):
-    h5_file = h5py.File(h5_file, mode="r")
-    x_group = "data/X"
-    y_group = "evaluation/atacseq_coverage"
-    if x_group not in h5_file or y_group not in h5_file:
-        sys.exit("ERROR: Your h5-file has the wrong formatting.")
-    X = torch.from_numpy(np.array(h5_file[x_group], dtype=np.int8))
-    Y = torch.from_numpy(np.array(h5_file[y_group], dtype=np.float32))
-    Y = Y.sum(2)
-    mask = [len(y[y < 0]) == 0 for y in Y]  # exclude padded ends
-    X = X[mask]
-    Y = Y[mask]
-    return TensorDataset(X, Y)
+class H5Dataset(Dataset):
+    def __init__(self, h5_file):
+        self.dataset = self.create_dataset(h5_file)
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
+
+    def __len__(self):
+        return len(self.dataset)
+
+    @staticmethod
+    def create_dataset(file):
+        h5df = h5py.File(file, mode="r")
+        X = np.array(h5df["data/X"], dtype=np.int8)
+        Y = np.array(h5df["evaluation/atacseq_coverage"], dtype=np.float32)  # int16 is ignored by numpy
+        assert np.shape(X)[:2] == np.shape(Y)[:2], "Size mismatch between arrays"
+        Y = np.sum(Y, axis=2)
+        mask = [len(y[y < 0]) == 0 for y in Y]  # exclude padded ends
+        X = X[mask]
+        Y = Y[mask]
+        return tuple((compressor.encode(x), compressor.encode(y)) for x, y in zip(X, Y))
 
 
-# LATER: add training and prediction modes via argparse
-
-def create_dataloader(directory, shuffle, batch_size):
-    full_path = args.input_directory + directory
-    # datasets = [create_dataset(full_path + "/" + file) for file in os.listdir(full_path)]
-    datasets = []
-    for file in os.listdir(full_path):
-        print(file)
-        datasets.append(create_dataset(full_path + "/" + file))
+def create_dataloader(group, shuffle, batch_size):
+    full_path = args.input_directory + group  # group: train, val, test
+    datasets = [H5Dataset(full_path + "/" + file) for file in os.listdir(full_path)]
     dataset = ConcatDataset(datasets)
+    # del datasets
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=True)
-    # pin_memory = faster RAM to GPU transfer
+    # del dataset
+    # pin_memory = faster RAM to GPU transfer, only True if device is gpu?
     return dataloader
 
 
@@ -95,35 +109,20 @@ sequence_length = 21384  # hardcoded for now
 nucleotides = 4  # hardcoded for now
 
 
-def xpadding(l_in, l_out, stride, dilation, kernel_size):
-    padding = math.ceil(((l_out-1)*stride - l_in + dilation*(kernel_size - 1) + 1)/2)
-    # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
-    return padding
-
-
+# at some point: try to implement as static methods: ypadding/y_pool (both not needed in the U-net)
 def ypadding(l_in, l_out, stride, kernel_size):
-    padding = math.ceil(((l_out-1)*stride - l_in + kernel_size)/2)
+    padding = math.ceil(((l_out - 1) * stride - l_in + kernel_size) / 2)
     # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
     return padding
 
 
 def y_pool(target):
     for layer in range(args.cnn_layers):
-        l_in = sequence_length/args.step**layer
-        l_out = sequence_length/args.step**(layer + 1)
+        l_in = sequence_length / args.step ** layer
+        l_out = sequence_length / args.step ** (layer + 1)
         ypad = ypadding(l_in, l_out, args.step, args.kernel_size)
         target = F.avg_pool1d(target, args.kernel_size, stride=args.step, padding=ypad)
     return target
-
-
-def pear_coeff(prediction, target, is_log=True):
-    if is_log:
-        prediction = torch.exp(prediction)
-    p = prediction - torch.mean(prediction)
-    t = target - torch.mean(target)
-    coeff = torch.sum(p*t)/(torch.sqrt(torch.sum(p**2))*torch.sqrt(torch.sum(t**2))+1e-8)
-    # 1e-8 avoiding division by 0
-    return coeff
 
 
 class LitHybridNet(pl.LightningModule):
@@ -158,7 +157,7 @@ class LitHybridNet(pl.LightningModule):
         for layer in range(cnn_layers):
             l_in = seq_len / step ** layer
             l_out = seq_len / step ** (layer + 1)
-            xpad = xpadding(l_in, l_out, step, 1, kernel_size)  # dilation=1
+            xpad = self.xpadding(l_in, l_out, step, 1, kernel_size)  # dilation=1
 
             self.cnn_layer_list.append(nn.Conv1d(input_size, filter_size, kernel_size, stride=step,
                                                  padding=xpad, dilation=1))
@@ -197,12 +196,12 @@ class LitHybridNet(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        X = batch[0].to(torch.float32)
-        Y = batch[1].to(torch.float32)
+        X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
+        Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
         Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = pear_coeff(pred, Y, is_log=True)
+        acc = self.pear_coeff(pred, Y, is_log=True)
         return {"loss": loss, "acc": acc.detach()}
 
     def training_epoch_end(self, training_step_outputs):
@@ -210,15 +209,15 @@ class LitHybridNet(pl.LightningModule):
         avg_acc = torch.stack([out["acc"] for out in training_step_outputs]).mean()
         self.train_losses.append(avg_loss.item())
         self.train_accuracy.append(avg_acc.item())
-        self.log("avg_train_accuracy", avg_acc, logger=False)
+        self.log("avg_train_accuracy", avg_acc.item(), logger=False)
 
     def validation_step(self, batch, batch_idx):
-        X = batch[0].to(torch.float32)
-        Y = batch[1].to(torch.float32)
+        X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
+        Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
         Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = pear_coeff(pred, Y, is_log=True)
+        acc = self.pear_coeff(pred, Y, is_log=True)
         return {"loss": loss, "acc": acc.detach()}
 
     def validation_epoch_end(self, validation_step_outputs):
@@ -228,19 +227,19 @@ class LitHybridNet(pl.LightningModule):
         self.val_accuracy.append(avg_acc.item())
 
     def test_step(self, batch, batch_idx):
-        X = batch[0].to(torch.float32)
-        Y = batch[1].to(torch.float32)
+        X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
+        Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
         Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = pear_coeff(pred, Y, is_log=True)
+        acc = self.pear_coeff(pred, Y, is_log=True)
         metrics = {"loss": loss.item(), "acc": acc.item()}
         self.log_dict(metrics, logger=False)
         return metrics
 
     def predict_step(self, batch, batch_idx, **kwargs):  # kwargs to make PyCharm happy
-        X = batch[0].to(torch.float32)
-        Y = batch[1].to(torch.float32)
+        X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
+        Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
         Y = y_pool(Y)
         pred = self(X)
         return {"prediction": pred, "Y": Y}
@@ -248,6 +247,32 @@ class LitHybridNet(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
+
+    @staticmethod
+    def decode_one(arrays, np_datatype, shape):
+        array_list = []
+        for array in arrays:
+            array = np.array(array)
+            array = np.frombuffer(compressor.decode(array), dtype=np_datatype)
+            array = np.reshape(array, shape)
+            array_list.append(array)
+        return torch.from_numpy(np.stack(array_list)).to(torch.float32)
+
+    @staticmethod
+    def xpadding(l_in, l_out, stride, dilation, kernel_size):
+        padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
+        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
+        return padding
+
+    @staticmethod
+    def pear_coeff(prediction, target, is_log=True):
+        if is_log:
+            prediction = torch.exp(prediction)
+        p = prediction - torch.mean(prediction)
+        t = target - torch.mean(target)
+        coeff = torch.sum(p * t) / (torch.sqrt(torch.sum(p ** 2)) * torch.sqrt(torch.sum(t ** 2)) + 1e-8)
+        # 1e-8 avoiding division by 0
+        return coeff
 
 
 hybrid_model = LitHybridNet(seq_len=sequence_length, input_size=nucleotides, cnn_layers=args.cnn_layers,
