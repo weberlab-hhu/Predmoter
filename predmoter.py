@@ -49,7 +49,7 @@ args = parser.parse_args()
 
 # 1. Input stuff (own module in the future)
 # ------------------------------------------
-valid_modes = ["train", "predict"]  # and test??? else it's a little confusing
+valid_modes = ["train", "test", "predict"]
 if args.mode not in valid_modes:
     sys.exit("ERROR: Valid modes are train or predict.")
 
@@ -108,8 +108,13 @@ def create_dataloader(group, shuffle, batch_size):
 sequence_length = 21384  # hardcoded for now
 nucleotides = 4  # hardcoded for now
 
+assert args.cnn_layers == 0, "At least one convolutional layer is required"
 
-# at some point: try to implement as static methods: ypadding/y_pool (both not needed in the U-net)
+assert sequence_length % args.cnn_layers**args.step,\
+    f"Sequence length is not divisible by {args.cnn_layers} to the power of {args.step}"
+
+
+# at some point: try to implement as static methods: ypadding/y_pool (both not needed in the U-net; delete later)
 def ypadding(l_in, l_out, stride, kernel_size):
     padding = math.ceil(((l_out - 1) * stride - l_in + kernel_size) / 2)
     # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
@@ -135,6 +140,7 @@ class LitHybridNet(pl.LightningModule):
         self.filter_size = filter_size
         self.kernel_size = kernel_size
         self.step = step
+        self.up = up
         self.hidden_size = hidden_size
         self.lstm_layers = lstm_layers
         self.learning_rate = learning_rate
@@ -151,8 +157,9 @@ class LitHybridNet(pl.LightningModule):
         self.val_accuracy = []
 
         # CNN part:
-        # -------------
-        self.cnn_layer_list = nn.ModuleList()
+        # --------------------
+        self.cnn_layer_list = nn.ModuleList()  # down part of the U-net
+        self.filter_list = []
 
         for layer in range(cnn_layers):
             l_in = seq_len / step ** layer
@@ -161,22 +168,38 @@ class LitHybridNet(pl.LightningModule):
 
             self.cnn_layer_list.append(nn.Conv1d(input_size, filter_size, kernel_size, stride=step,
                                                  padding=xpad, dilation=1))
+            self.filter_list.append(input_size)  # example: [4, 64, 128]; the last input_size is not needed
             input_size = filter_size
             filter_size = filter_size * up
 
+        self.filter_list = list(reversed(self.filter_list))  # example: [128, 64, 4]
+
         # LSTM part:
-        # --------------
+        # --------------------
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
                             num_layers=lstm_layers, batch_first=True)  # input_size=math.ceil(filter_size/up)
         # input: last dimension of tensor, output:(batch,new_seq_len,hidden_size)
 
+        # Transposed CNN part
+        # --------------------
+        self.up_layer_list = nn.ModuleList()  # up part of the U-net
+
+        for layer in range(cnn_layers):
+            l_in = l_out  # sequence_length is not affected by the LSTM
+            l_out = l_in * step
+            tpad = self.trans_padding(l_in, l_out, step, 1, kernel_size, 1)  # dilation and output_padding are 1
+            filter_size = self.filter_list[layer]
+            self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, kernel_size, stride=step,
+                                                         padding=tpad, dilation=1, output_padding=1))
+            hidden_size = filter_size
+
         # Linear part:
-        # --------------
+        # --------------------
         self.out = nn.Linear(hidden_size, 1)  # output_size hardcoded
 
     def forward(self, x):
         # CNN part:
-        # -------------
+        # --------------------
         x = x.transpose(1, 2)  # convolution over the base pairs, change position of 2. and 3. dimension
 
         for layer in self.cnn_layer_list:
@@ -185,51 +208,61 @@ class LitHybridNet(pl.LightningModule):
         x = x.transpose(1, 2)
 
         # LSTM part:
-        # --------------
+        # --------------------
         # size of hidden and cell state: (num_layers,batch_size,hidden_size)
         x, _ = self.lstm(x)  # _=(hn, cn)
 
+        # Transposed CNN part
+        # --------------------
+        x = x.transpose(1, 2)
+
+        for layer in self.up_layer_list:
+            x = F.relu(layer(x))
+
+        x = x.transpose(1, 2)
+
         # Linear part:
-        # --------------
+        # --------------------
         x = self.out(x)
         x = x.view(x.size(0), x.size(1))
         return x
 
     def training_step(self, batch, batch_idx):
         X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
+        # dynamic shape: self.seq_len and self.filter_list[-1]?
         Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
-        Y = y_pool(Y)
+        # Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
         return {"loss": loss, "acc": acc.detach()}
 
     def training_epoch_end(self, training_step_outputs):
-        avg_loss = torch.stack([out["loss"] for out in training_step_outputs]).mean()
-        avg_acc = torch.stack([out["acc"] for out in training_step_outputs]).mean()
-        self.train_losses.append(avg_loss.item())
-        self.train_accuracy.append(avg_acc.item())
-        self.log("avg_train_accuracy", avg_acc.item(), logger=False)
+        avg_loss = torch.stack([out["loss"] for out in training_step_outputs]).mean().item()
+        avg_acc = torch.stack([out["acc"] for out in training_step_outputs]).mean().item()
+        self.train_losses.append(avg_loss)
+        self.train_accuracy.append(avg_acc)
+        self.log("avg_train_accuracy", avg_acc, logger=False)
 
     def validation_step(self, batch, batch_idx):
         X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
         Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
-        Y = y_pool(Y)
+        # Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
         return {"loss": loss, "acc": acc.detach()}
 
     def validation_epoch_end(self, validation_step_outputs):
-        avg_loss = torch.stack([out["loss"] for out in validation_step_outputs]).mean()
-        avg_acc = torch.stack([out["acc"] for out in validation_step_outputs]).mean()
-        self.val_losses.append(avg_loss.item())
-        self.val_accuracy.append(avg_acc.item())
+        avg_loss = torch.stack([out["loss"] for out in validation_step_outputs]).mean().item()
+        avg_acc = torch.stack([out["acc"] for out in validation_step_outputs]).mean().item()
+        self.val_losses.append(avg_loss)
+        self.val_accuracy.append(avg_acc)
 
     def test_step(self, batch, batch_idx):
         X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
         Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
-        Y = y_pool(Y)
+        # Y = y_pool(Y)
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
@@ -238,11 +271,10 @@ class LitHybridNet(pl.LightningModule):
         return metrics
 
     def predict_step(self, batch, batch_idx, **kwargs):  # kwargs to make PyCharm happy
-        X = self.decode_one(batch[0], np.int8, shape=(sequence_length, nucleotides))
-        Y = self.decode_one(batch[1], np.float32, shape=(sequence_length,))
-        Y = y_pool(Y)
-        pred = self(X)
-        return {"prediction": pred, "Y": Y}
+        X = self.decode_one(batch, np.int8, shape=(sequence_length, nucleotides))  # encode predict input???
+        pred = self(X)  # if not encoded: self(batch), batch_size=1 , dataloader accepts only X
+        # custom dataloader/dataset for predict step needed
+        return pred
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
@@ -256,11 +288,20 @@ class LitHybridNet(pl.LightningModule):
             array = np.frombuffer(compressor.decode(array), dtype=np_datatype)
             array = np.reshape(array, shape)
             array_list.append(array)
-        return torch.from_numpy(np.stack(array_list)).to(torch.float32)
+        if args.device == "gpu":
+            return torch.from_numpy(np.stack(array_list)).float().cuda()
+        elif args.device == "cpu":
+            return torch.from_numpy(np.stack(array_list)).float()
 
     @staticmethod
     def xpadding(l_in, l_out, stride, dilation, kernel_size):
         padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
+        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
+        return padding
+
+    @staticmethod
+    def trans_padding(l_in, l_out, stride, dilation, kernel_size, output_pad):
+        padding = math.ceil(((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2)
         # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
         return padding
 
@@ -315,9 +356,14 @@ if args.mode == "train":
             if epoch == 0:
                 g.write("epoch training_accuracy validation_accuracy\n")
             g.write(f"{epoch + 1} {train} {val}\n")
-else:
+elif args.mode == "predict":
+    predict_loader = create_dataloader("predict", shuffle=False, batch_size=args.test_batch_size)  # batch = 1???
+    trainer.predict(model=hybrid_model, dataloaders=predict_loader, ckpt_path=args.model)
+    # does not work as intended yet!!!!
+elif args.mode == "test":
+    # do test stuff
     test_loader = create_dataloader("test", shuffle=False, batch_size=args.test_batch_size)
-    trainer.predict(model=hybrid_model, dataloaders=test_loader, ckpt_path=args.model)
+    trainer.test(model=hybrid_model, dataloaders=test_loader, ckpt_path=args.model)
 
 # not a great way/method; it will need refinement
 if args.example and args.mode != "predict":
