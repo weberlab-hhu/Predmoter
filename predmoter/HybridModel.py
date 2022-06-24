@@ -15,11 +15,11 @@ from dataset import PromoterDataset
 
 # add way more selves
 class LitHybridNet(pl.LightningModule):
-    def __init__(self, seq_len, input_size, cnn_layers, filter_size, kernel_size, step, up,
-                 hidden_size, lstm_layers, learning_rate):
+    def __init__(self, cnn_layers, filter_size, kernel_size, step, up,
+                 hidden_size, lstm_layers, learning_rate, seq_len, input_size):
         super(LitHybridNet, self).__init__()
         self.seq_len = seq_len  # keep or replace?
-        self.input_size = input_size  # should be the same all the way through since self.input_size is not changed
+        self.input_size = input_size  # self.input_size is not effected by input_size = filter_size
         self.cnn_layers = cnn_layers
         self.filter_size = filter_size
         self.kernel_size = kernel_size
@@ -30,7 +30,7 @@ class LitHybridNet(pl.LightningModule):
         self.learning_rate = learning_rate
 
         # for model summary in trainer
-        # self.example_input_array = torch.zeros(6, seq_len, input_size)
+        self.example_input_array = torch.zeros(2, self.seq_len, self.input_size)
 
         # for checkpoints
         self.save_hyperparameters()  # ?
@@ -164,30 +164,30 @@ class LitHybridNet(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
-    @staticmethod
-    def decode_one(arrays, np_datatype, shape):
+    def decode_one(self, arrays, np_datatype, shape):
         array_list = []
         compressor = PromoterDataset.compressor
         for array in arrays:
-            array = np.array(array)
             array = np.frombuffer(compressor.decode(array), dtype=np_datatype)
             array = np.reshape(array, shape)
+            array = np.array(array)
             array_list.append(array)
-        if args.device == "gpu":
+        # trainer.fit() sets self.device.type to the accelerator selected in pl.Trainer()
+        if self.device.type == "cuda":  # cuda = gpu
             return torch.from_numpy(np.stack(array_list)).float().cuda()
-        elif args.device == "cpu":
+        elif self.device.type == "cpu":
             return torch.from_numpy(np.stack(array_list)).float()
 
     @staticmethod
     def xpadding(l_in, l_out, stride, dilation, kernel_size):
         padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
-        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
+        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even l_in
         return padding
 
     @staticmethod
     def trans_padding(l_in, l_out, stride, dilation, kernel_size, output_pad):
         padding = math.ceil(((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2)
-        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
+        # math.ceil to  avoid rounding half to even/bankers rounding
         return padding
 
     @staticmethod
@@ -199,3 +199,17 @@ class LitHybridNet(pl.LightningModule):
         coeff = torch.sum(p * t) / (torch.sqrt(torch.sum(p ** 2)) * torch.sqrt(torch.sum(t ** 2)) + 1e-8)
         # 1e-8 avoiding division by 0
         return coeff
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        group = parent_parser.add_argument_group("Model_arguments")
+        group.add_argument('--cnn-layers', type=int, default=1)
+        group.add_argument('--filter-size', type=int, default=64)
+        group.add_argument('--kernel-size', type=int, default=9)
+        group.add_argument('--step', type=int, default=2)
+        group.add_argument('--up', type=int, default=2,
+                           help="Multiplier used for up-scaling each convolutional layer.")
+        group.add_argument('--hidden_size', type=int, default=128, help="LSTM neurons per layer.")
+        group.add_argument('--lstm-layers', type=int, default=1)  # the more lstm layers = more epochs required
+        group.add_argument('-lr', '--learning-rate', type=float, default=1e-3)
+        return parent_parser
