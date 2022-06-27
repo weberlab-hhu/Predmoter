@@ -9,8 +9,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from dataset import PromoterDataset
 
 
 # add way more selves
@@ -117,8 +115,7 @@ class LitHybridNet(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        X = self.decode_one(batch[0], np.int8, shape=(self.seq_len, self.input_size))
-        Y = self.decode_one(batch[1], np.float32, shape=(self.seq_len,))
+        X, Y = batch
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
@@ -129,11 +126,10 @@ class LitHybridNet(pl.LightningModule):
         avg_acc = torch.stack([out["acc"] for out in training_step_outputs]).mean().item()
         self.train_losses.append(avg_loss)
         self.train_accuracy.append(avg_acc)
-        self.log("avg_train_accuracy", avg_acc, logger=False)
+        self.log("avg_train_accuracy", avg_acc, logger=False)  # logging for ModelCheckpoint callback
 
     def validation_step(self, batch, batch_idx):
-        X = self.decode_one(batch[0], np.int8, shape=(self.seq_len, self.input_size))
-        Y = self.decode_one(batch[1], np.float32, shape=(self.seq_len,))
+        X, Y = batch
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
@@ -146,8 +142,7 @@ class LitHybridNet(pl.LightningModule):
         self.val_accuracy.append(avg_acc)
 
     def test_step(self, batch, batch_idx):  # needed?, never called
-        X = self.decode_one(batch[0], np.int8, shape=(self.seq_len, self.input_size))
-        Y = self.decode_one(batch[1], np.float32, shape=(self.seq_len,))
+        X, Y = batch
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
@@ -156,27 +151,12 @@ class LitHybridNet(pl.LightningModule):
         return metrics
 
     def predict_step(self, batch, batch_idx, **kwargs):  # kwargs to make PyCharm happy
-        X = self.decode_one(batch, np.int8, shape=(self.seq_len, self.input_size))  # encode predict input???
-        pred = self(X)  # if not encoded: self(batch), batch_size=1 , dataloader accepts only X
+        pred = self(batch)
         return pred
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
-
-    def decode_one(self, arrays, np_datatype, shape):
-        array_list = []
-        compressor = PromoterDataset.compressor
-        for array in arrays:
-            array = np.frombuffer(compressor.decode(array), dtype=np_datatype)
-            array = np.reshape(array, shape)
-            array = np.array(array)
-            array_list.append(array)
-        # trainer.fit() sets self.device.type to the accelerator selected in pl.Trainer()
-        if self.device.type == "cuda":  # cuda = gpu
-            return torch.from_numpy(np.stack(array_list)).float().cuda()
-        elif self.device.type == "cpu":
-            return torch.from_numpy(np.stack(array_list)).float()
 
     @staticmethod
     def xpadding(l_in, l_out, stride, dilation, kernel_size):
@@ -203,13 +183,13 @@ class LitHybridNet(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         group = parent_parser.add_argument_group("Model_arguments")
-        group.add_argument('--cnn-layers', type=int, default=1)
-        group.add_argument('--filter-size', type=int, default=64)
-        group.add_argument('--kernel-size', type=int, default=9)
-        group.add_argument('--step', type=int, default=2)
-        group.add_argument('--up', type=int, default=2,
-                           help="Multiplier used for up-scaling each convolutional layer.")
-        group.add_argument('--hidden_size', type=int, default=128, help="LSTM neurons per layer.")
-        group.add_argument('--lstm-layers', type=int, default=1)  # the more lstm layers = more epochs required
-        group.add_argument('-lr', '--learning-rate', type=float, default=1e-3)
+        group.add_argument("--cnn-layers", type=int, default=1, help="(default: %(default)d)")
+        group.add_argument("--filter-size", type=int, default=64, help="(default: %(default)d)")
+        group.add_argument("--kernel-size", type=int, default=9, help="(default: %(default)d)")
+        group.add_argument("--step", type=int, default=2, help="equals stride")
+        group.add_argument("--up", type=int, default=2,
+                           help="multiplier used for up-scaling each convolutional layer")
+        group.add_argument("--hidden_size", type=int, default=128, help="LSTM units per layer")
+        group.add_argument("--lstm-layers", type=int, default=1, help="(default: %(default)d)")
+        group.add_argument("-lr", "--learning-rate", type=float, default=0.001, help="(default: %(default)f)")
         return parent_parser
