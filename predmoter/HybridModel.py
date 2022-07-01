@@ -1,9 +1,4 @@
-import os
 import sys
-import random
-import numcodecs
-# import argparse
-import numpy as np
 import math
 import torch
 from torch import nn
@@ -31,17 +26,17 @@ class LitHybridNet(pl.LightningModule):
         self.example_input_array = torch.zeros(2, self.seq_len, self.input_size)
 
         # for checkpoints
-        self.save_hyperparameters()  # ?
+        self.save_hyperparameters()
 
         self.train_losses = []
         self.val_losses = []
         self.train_accuracy = []
         self.val_accuracy = []
 
-        assert self.cnn_layers > 0, "At least one convolutional layer is required"
+        assert self.cnn_layers > 0, "at least one convolutional layer is required"
 
         assert (self.seq_len % self.cnn_layers ** self.step) == 0, \
-            f"Sequence length is not divisible by {self.cnn_layers} to the power of {self.step}"
+            f"sequence length is not divisible by {self.cnn_layers} to the power of {self.step}"
 
         # CNN part:
         # --------------------
@@ -141,7 +136,7 @@ class LitHybridNet(pl.LightningModule):
         self.val_losses.append(avg_loss)
         self.val_accuracy.append(avg_acc)
 
-    def test_step(self, batch, batch_idx):  # needed?, never called
+    def test_step(self, batch, batch_idx):  # not needed right now
         X, Y = batch
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
@@ -150,9 +145,8 @@ class LitHybridNet(pl.LightningModule):
         self.log_dict(metrics, logger=False)
         return metrics
 
-    def predict_step(self, batch, batch_idx, **kwargs):  # kwargs to make PyCharm happy
-        pred = self(batch)
-        return pred
+    def predict_step(self, batch, batch_idx, **kwargs):
+        return self(batch)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
