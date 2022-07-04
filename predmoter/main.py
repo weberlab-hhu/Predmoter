@@ -1,16 +1,26 @@
-# import sys
+import sys
+import os
 import time
 import random
-import logging
+# import logging
 import argparse
+import numpy as np
+import h5py
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary, EarlyStopping
 from pytorch_lightning.utilities.seed import seed_everything
-from dataset import PredmoterSequence, get_dataloader
+from dataset import get_dataloader
 from HybridModel import LitHybridNet
 
-logging.disable(logging.INFO)  # disables info about how many tpus, gpus , etc. were found
+# logging.disable(logging.INFO)  # disables info about how many tpus, gpus , etc. were found
+# logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
+
+
+def check_paths(input_dir, output_dir, checkpoint_dir):
+    assert os.path.exists(input_dir), f"the input directory {input_dir} doesn't exist"
+    assert os.path.exists(output_dir), f"the output directory {output_dir} doesn't exist"
+    assert os.path.exists(checkpoint_dir), f"the checkpoint directory {checkpoint_dir} doesn't exist"
 
 
 def set_seed(seed):
@@ -43,30 +53,35 @@ def set_callbacks(checkpoint_path, patience):
     return callbacks
 
 
-def save_metrics(prefix, output_dir, resume_training):  # print_mode ?
-    prefix = "" if prefix is None else f"{prefix}_"
+def check_metrics(prefix, output_dir):
+    metrics_file = "/".join([output_dir.rstrip("/"), f"{prefix}metrics.txt"])
+    assert os.path.exists(metrics_file),\
+        f"please provide your previous {prefix}metrics.txt file in your output directory"
+
+
+def save_metrics(prefix, output_dir, resume_training, model):
     # log_file ??
-    file_list = ["/".join([output_dir.rstrip("/"), f"{prefix}{metric}.txt"]) for metric in ["loss", "accuracy"]]
+    metrics_file = "/".join([output_dir.rstrip("/"), f"{prefix}metrics.txt"])
     if resume_training:
-        with open(loss_file, "r") as f:
-            losses = f.readlines()
-        last_epoch = int(losses[-1][0]) + 1
+        with open(metrics_file, "r") as f:
+            metrics = f.readlines()
+        last_epoch = int(metrics[-1][0]) + 1
     else:
         last_epoch = 1
-    for file in file_list:
-        with open(file, "a", encoding="utf-8") as f:
-            for epoch, (train, val) in enumerate(zip(hybrid_model.train_losses, hybrid_model.val_losses[1:])):  # !!!
-                # un-dynamic -> accuracy
-                if epoch == 0 and not resume_training:
-                    f.write("epoch training_losses validation_losses\n")
-                f.write(f"{epoch + last_epoch} {train} {val}\n")
-
-# add more arguments to main and argparse later and order them
+    zip_obj = zip(model.train_losses, model.val_losses[1:], model.train_accuracy, model.val_accuracy[1:])
+    with open(metrics_file, "a", encoding="utf-8") as f:
+        for epoch, metrics in enumerate(zip_obj):
+            if epoch == 0 and not resume_training:
+                f.write("epoch training_loss validation_loss training_accuracy validation_accuracy\n")
+            metrics = " ".join(map(str, metrics))
+            f.write(f"{epoch + last_epoch} {metrics}\n")
 
 
 def main(model_arguments, input_directory, output_directory, mode, resume_training, model, seed,
          checkpoint_path, patience, batch_size, test_batch_size, num_workers, prefix, device, num_devices,
          epochs, limit_predict_batches):
+    assert mode in ["train", "predict"], f"valid modes are train or predict, not {mode}"
+    check_paths(input_directory, output_directory, checkpoint_path)
     set_seed(seed)
     meta = get_meta(input_directory, mode)
     assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
@@ -79,39 +94,39 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device,
                          max_epochs=epochs, logger=False, enable_progress_bar=False,
                          deterministic=True, limit_predict_batches=limit_predict_batches)
-
-    assert mode in ["train", "predict"], "Valid modes are train or predict."
     if mode == "train":
+        if resume_training:
+            check_metrics(prefix, output_directory)
         print(f"Loading training and validation data into memory started at {time.asctime()}.")
         train_loader = get_dataloader(input_dir=input_directory, type_="train", shuffle=True,
-                                      batch_size=batch_size, num_workers=num_workers)
+                                      batch_size=batch_size, num_workers=num_workers, meta=meta)
         val_loader = get_dataloader(input_dir=input_directory, type_="val", shuffle=False,
-                                    batch_size=batch_size, num_workers=num_workers)
+                                    batch_size=batch_size, num_workers=num_workers, meta=meta)
         mem_size = (sys.getsizeof(train_loader.dataset.X) + sys.getsizeof(train_loader.dataset.Y) +
                     sys.getsizeof(val_loader.dataset.X) + sys.getsizeof(val_loader.dataset.Y))/1024**3
         print(f"Loading training and validation data into memory ended at {time.asctime()}."
               f"The compressed data is {mem_size:.4f} Gb in size.")
 
-        print(f"Training started at {time.asctime()}")
+        print(f"Training started at {time.asctime()}.")
         trainer.fit(model=hybrid_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-        print(f"Training ended at {time.asctime()}")
+        print(f"Training ended at {time.asctime()}.")
 
-        save_metrics(prefix, output_directory, resume_training)
+        save_metrics(prefix, output_directory, resume_training, hybrid_model)
 
     elif mode == "predict":
         print(f"Loading test data into memory started at {time.asctime()}.")
-        test = get_dataloader(input_dir=input_directory, type_="test", shuffle=False,
-                              batch_size=test_batch_size, num_workers=num_workers)
+        test_loader = get_dataloader(input_dir=input_directory, type_="test", shuffle=False,
+                                     batch_size=test_batch_size, num_workers=num_workers, meta=meta)
         mem_size = sys.getsizeof(test_loader.dataset.X)/1024 ** 3
         print(f"Loading test data into memory ended at {time.asctime()}."
               f"The compressed data is {mem_size:.4f} Gb in size.")
 
-        print(f"Predicting started at {time.asctime()}")
-        predictions = trainer.predict(model=hybrid_model, dataloaders=test.dataloader)
-        print(f"Predicting ended at {time.asctime()}")
+        print(f"Predicting started at {time.asctime()}.")
+        predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
+        print(f"Predicting ended at {time.asctime()}.")
         # need trainer or use loop?? (limit_predict_batches not possible then)
         predictions = torch.cat(predictions, dim=0)  # unify list of preds to tensor
-        torch.save(predictions, "/".join([output_directory.rstrip("/"), "predictions.pt"]))
+        torch.save(predictions, "/".join([output_directory.rstrip("/"), f"{prefix}predictions.pt"]))
 
 
 # def main():
@@ -127,29 +142,33 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output-directory", type=str, default=".",
                         help="directory to save log-files and predictions to")
     parser.add_argument("-m", "--mode", type=str, default=None, required=True, help="valid modes: train or predict")
-    parser.add_argument("--resume_training", action="store_true")
+    parser.add_argument("--resume-training", action="store_true")
     parser.add_argument("--model", type=str, default=None,
                         help="path to the model used for predictions or resuming training")
     parser.add_argument("--seed", type=int, default=None, help="if not provided: will be chosen randomly")
-    parser.add_argument("--checkpoint-path", type=str, default=None,
+    parser.add_argument("--checkpoint-path", type=str, default=".",
                         help="otherwise empty directory to save model checkpoints to")
     parser.add_argument("--patience", type=int, default=3,
                         help="allowed epochs without training accuracy improvement before stopping training")
     parser.add_argument("-b", "--batch-size", type=int, default=100, help="(default: %(default)d)")
     parser.add_argument("-tb", "--test-batch-size", type=int, default=10, help="(default: %(default)d)")
-    parser.add_argument("--num_workers", type=int, default=8, help="for multiprocessing during data loading")
-    parser.add_argument("--prefix", type=str, default=None, help="prefix for loss, accuracy and log files")
+    parser.add_argument("--num-workers", type=int, default=8, help="for multiprocessing during data loading")
+    parser.add_argument("--prefix", type=str, default="", help="prefix for loss, accuracy and log files")
     group = parser.add_argument_group("Trainer_arguments")
     group.add_argument("--device", type=str, default="gpu", help="supported devices are CPU and GPU")
     group.add_argument("--num-devices", type=int, default=1, help="(default: %(default)d)")
     group.add_argument("-e", "--epochs", type=int, default=35, help="(default: %(default)d)")
-    group.add_argument("--limit_predict_batches", action="store", dest="limit_predict_batches",
+    group.add_argument("--limit-predict-batches", action="store", dest="limit_predict_batches",
                        help="limiting predict: float = fraction, int = num_batches (default: 1.0)")
     args = parser.parse_args()
 
     # limit predict
     if args.limit_predict_batches is None:
         args.limit_predict_batches = 1.0
+
+    # prefix
+    if args.prefix != "":
+        args.prefix = f"{args.prefix}_"
 
     # dictionary stuff
     dict_model_args = vars(model_args[0])
