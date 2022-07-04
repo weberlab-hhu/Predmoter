@@ -1,4 +1,3 @@
-import sys
 import math
 import torch
 from torch import nn
@@ -11,8 +10,8 @@ class LitHybridNet(pl.LightningModule):
     def __init__(self, cnn_layers, filter_size, kernel_size, step, up,
                  hidden_size, lstm_layers, learning_rate, seq_len, input_size):
         super(LitHybridNet, self).__init__()
-        self.seq_len = seq_len  # keep or replace?
-        self.input_size = input_size  # self.input_size is not effected by input_size = filter_size
+        self.seq_len = seq_len
+        self.input_size = input_size
         self.cnn_layers = cnn_layers
         self.filter_size = filter_size
         self.kernel_size = kernel_size
