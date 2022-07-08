@@ -27,15 +27,10 @@ class LitHybridNet(pl.LightningModule):
         # for checkpoints
         self.save_hyperparameters()
 
-        self.train_losses = []
-        self.val_losses = []
-        self.train_accuracy = []
-        self.val_accuracy = []
-
         assert self.cnn_layers > 0, "at least one convolutional layer is required"
 
-        assert (self.seq_len % self.cnn_layers ** self.step) == 0, \
-            f"sequence length is not divisible by {self.cnn_layers} to the power of {self.step}"
+        assert (self.seq_len % self.step ** self.cnn_layers) == 0, \
+            f"sequence length is not divisible by {self.step} to the power of {self.cnn_layers}"
 
         # CNN part:
         # --------------------
@@ -53,8 +48,6 @@ class LitHybridNet(pl.LightningModule):
             input_size = filter_size
             filter_size = filter_size * self.up
 
-        self.filter_list = list(reversed(self.filter_list))  # example: [128, 64, 4]
-
         # LSTM part:
         # --------------------
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=self.hidden_size,
@@ -65,11 +58,11 @@ class LitHybridNet(pl.LightningModule):
         # --------------------
         self.up_layer_list = nn.ModuleList()  # up part of the U-net
 
-        for layer in range(cnn_layers):
-            l_in = l_out  # sequence length is not affected by the LSTM
+        for layer in range(cnn_layers, 0, -1):  # count layers backwards
+            l_in = self.seq_len / self.step ** layer
             l_out = l_in * self.step
             tpad = self.trans_padding(l_in, l_out, self.step, 1, self.kernel_size, 1)  # dilation & output_padding = 1
-            filter_size = self.filter_list[layer]
+            filter_size = self.filter_list[layer-1]  # iterate backwards over filter_list
             self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, self.kernel_size, stride=self.step,
                                                          padding=tpad, dilation=1, output_padding=1))
             hidden_size = filter_size
@@ -113,27 +106,18 @@ class LitHybridNet(pl.LightningModule):
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
-        return {"loss": loss, "acc": acc.detach()}
-
-    def training_epoch_end(self, training_step_outputs):
-        avg_loss = torch.stack([out["loss"] for out in training_step_outputs]).mean().item()
-        avg_acc = torch.stack([out["acc"] for out in training_step_outputs]).mean().item()
-        self.train_losses.append(avg_loss)
-        self.train_accuracy.append(avg_acc)
-        self.log("avg_train_accuracy", avg_acc, logger=False)  # logging for ModelCheckpoint callback
+        metrics = {"avg_train_loss": loss, "avg_train_accuracy": acc}
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")  # log for checkpoints
+        return loss
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred = self(X)
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
-        return {"loss": loss, "acc": acc.detach()}
-
-    def validation_epoch_end(self, validation_step_outputs):
-        avg_loss = torch.stack([out["loss"] for out in validation_step_outputs]).mean().item()
-        avg_acc = torch.stack([out["acc"] for out in validation_step_outputs]).mean().item()
-        self.val_losses.append(avg_loss)
-        self.val_accuracy.append(avg_acc)
+        metrics = {"avg_val_loss": loss, "avg_val_accuracy": acc}
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
+        return loss
 
     def test_step(self, batch, batch_idx):  # not needed right now
         X, Y = batch
