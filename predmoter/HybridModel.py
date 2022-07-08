@@ -166,7 +166,7 @@ class LitHybridNet(pl.LightningModule):
         group.add_argument("--step", type=int, default=2, help="equals stride")
         group.add_argument("--up", type=int, default=2,
                            help="multiplier used for up-scaling each convolutional layer")
-        group.add_argument("--hidden_size", type=int, default=128, help="LSTM units per layer")
+        group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
         group.add_argument("--lstm-layers", type=int, default=1, help="(default: %(default)d)")
         group.add_argument("-lr", "--learning-rate", type=float, default=0.001, help="(default: %(default)f)")
         return parent_parser
