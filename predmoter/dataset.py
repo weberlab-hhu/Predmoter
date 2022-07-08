@@ -1,4 +1,5 @@
 import os
+import glob
 import numcodecs
 import h5py
 import numpy as np
@@ -10,13 +11,10 @@ class PredmoterSequence(Dataset):
     compressor = numcodecs.blosc.Blosc(cname="blosclz", clevel=9, shuffle=2)  # class variable
 
     def __init__(self, h5_files, type_):
+        super().__init__()  # ?
         self.h5_files = h5_files
-        assert len(self.h5_files) >= 1, "no input file/s were provided"
         self.type_ = type_
-        self.X, self.Y = [], []
-        self.create_dataset()
-        self.X = np.concatenate(self.X, axis=0)
-        self.Y = np.concatenate(self.Y, axis=0) if self.type_ != "test" else None
+        self.X, self.Y = self.create_dataset()  # returns tuple
 
     def __getitem__(self, idx):
         if self.type_ == "test":
@@ -27,11 +25,13 @@ class PredmoterSequence(Dataset):
         return len(self.X)
 
     def create_dataset(self):
+        X_list = []
+        Y_list = []
         for h5_file in self.h5_files:
             h5df = h5py.File(h5_file, mode="r")
             X = np.array(h5df["data/X"][:6], dtype=np.int8)
             if self.type_ == "test":
-                self.X.append(self.encode_one(X))
+                X_list.append(self.encode_one(X))
             else:
                 Y = np.array(h5df["evaluation/atacseq_coverage"][:6], dtype=np.float32)
                 assert np.shape(X)[:2] == np.shape(Y)[:2], "Size mismatch between input and labels."
@@ -39,8 +39,11 @@ class PredmoterSequence(Dataset):
                 mask = [len(y[y < 0]) == 0 for y in Y]  # exclude padded ends
                 X = X[mask]
                 Y = Y[mask]
-                self.X.append(self.encode_one(X))
-                self.Y.append(self.encode_one(Y))
+                X_list.append(self.encode_one(X))
+                Y_list.append(self.encode_one(Y))
+        if self.type_ == "test":
+            return np.concatenate(X_list, axis=0), None
+        return np.concatenate(X_list, axis=0), np.concatenate(Y_list, axis=0)
 
     def encode_one(self, array):
         array = [self.compressor.encode(arr) for arr in array]
@@ -67,13 +70,13 @@ def collate_fn(batch_list, seq_len, bases):
 
 
 def get_dataloader(input_dir, type_, shuffle, batch_size, num_workers, meta):
-    assert type_ in ["train", "val", "test"], "valid types are train, val or test"
+    assert type_ in ["train", "val", "test"], "valid types are train, val or test"  # needed? program defines those
     input_dir = "/".join([input_dir.rstrip("/"), type_])
-    h5_files = ["/".join([input_dir, file]) for file in os.listdir(input_dir)]
+    h5_files = glob.glob(os.path.join(input_dir, '*.h5'))
     if type_ == "test":
         assert len(h5_files) == 1, "predictions should only be applied to individual files"
     dataloader = DataLoader(PredmoterSequence(h5_files, type_), batch_size=batch_size,
                             shuffle=shuffle, pin_memory=True, num_workers=num_workers,
                             collate_fn=lambda batch: collate_fn(batch, meta[0], meta[1]))
-    # lambda makes it possible to add more arguments than batch to the collate function
+    # lambda function makes it possible to add more arguments than batch to collate_fn
     return dataloader
