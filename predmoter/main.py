@@ -107,9 +107,9 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     if mode == "train":
         logging.info("Loading training and validation data into memory.")
         train_loader = get_dataloader(input_dir=input_directory, type_="train", shuffle=True,
-                                      batch_size=batch_size, num_workers=num_workers, meta=meta)
+                                      batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
         val_loader = get_dataloader(input_dir=input_directory, type_="val", shuffle=False,
-                                    batch_size=batch_size, num_workers=num_workers, meta=meta)
+                                    batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
         mem_size = (sys.getsizeof(train_loader.dataset.X) + sys.getsizeof(train_loader.dataset.Y) +
                     sys.getsizeof(val_loader.dataset.X) + sys.getsizeof(val_loader.dataset.Y))/1024**3
         logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
@@ -125,7 +125,7 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     elif mode == "predict":
         logging.info("Loading test data into memory.")
         test_loader = get_dataloader(input_dir=input_directory, type_="test", shuffle=False,
-                                     batch_size=test_batch_size, num_workers=num_workers, meta=meta)
+                                     batch_size=test_batch_size, num_workers=num_workers, seq_len=meta[0])
         mem_size = sys.getsizeof(test_loader.dataset.X)/1024 ** 3
         logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
         logging.info("Predicting started.")
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--mode", type=str, default=None, required=True, help="valid modes: train or predict")
     parser.add_argument("--resume-training", action="store_true")
     parser.add_argument("--model", type=str, default="last.ckpt",
-                        help="name of the model used for predictions or resuming training")
+                        help="name of the model used for predictions or resuming training")  # maybe best_model_path?!
     parser.add_argument("--seed", type=int, default=None, help="if not provided: will be chosen randomly")
     parser.add_argument("--checkpoint-path", type=str, default=".",
                         help="otherwise empty directory to save model checkpoints to")
