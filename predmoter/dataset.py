@@ -43,9 +43,10 @@ class PredmoterSequence(Dataset):
                     Y = np.around(Y, 4)
                     mask = [sum(np.isnan(y)) == 0 for y in Y]  # exclude non-informative regions
                     X, Y = X[mask], Y[mask]
-                    Y = self.encode_one(Y)
-                    X_list.append(X)
-                    Y_list.append(Y)
+                    if len(X) != 0:  # if all chunks contain nan don't add them
+                        Y = self.encode_one(Y)
+                        X_list.append(X)
+                        Y_list.append(Y)
             if self.type_ == "test":  # only one file
                 return np.concatenate(X_list, axis=0), None
             X_final.append(np.concatenate(X_list, axis=0))
