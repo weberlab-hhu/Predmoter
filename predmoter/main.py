@@ -1,6 +1,5 @@
-import sys
+# import sys
 import os
-# import time
 import glob
 import random
 import logging
@@ -55,6 +54,7 @@ def set_seed(seed):
         seed_everything(seed=seed, workers=True)  # seed for reproducibility
         logging.info(f"A seed wasn't provided by the user. The random seed is: {seed}.")
     else:
+        logging.info(f"The seed provided by the user is: {seed}.")
         seed_everything(seed=seed, workers=True)
 
 
@@ -64,13 +64,14 @@ def init_logging(output_dir, prefix):
     file_name = "/".join([output_dir.rstrip("/"), f"{prefix}predmoter.log"])
 
     logging.basicConfig(filename=file_name, filemode="a",
-                        format="%(asctime)s, %(name)s %(levelname)s: %(message)s",
+                        format="%(asctime)s, %(levelname)s: %(message)s",
                         datefmt="%d.%m.%Y %H:%M:%S", level=logging.DEBUG)
 
 
-def check_paths(path_list):
-    for path in path_list:
+def check_paths(input_dir, output_dir, ckpt_path):
+    for path in [input_dir, output_dir]:
         assert os.path.exists(path), f"the directory {path} doesn't exist"
+    os.makedirs(ckpt_path, exist_ok=True)
 
 
 def get_meta(input_dir, mode):
@@ -78,6 +79,7 @@ def get_meta(input_dir, mode):
         else "/".join([input_dir.rstrip("/"), "train"])
     h5_files = glob.glob(os.path.join(input_dir, '*.h5'))
     assert len(h5_files) >= 1, "no input file/s were provided"
+
     for h5_file in h5_files:
         h5df = h5py.File(h5_file, mode="r")
         X = np.array(h5df["data/X"][:1], dtype=np.int8)
@@ -87,37 +89,49 @@ def get_meta(input_dir, mode):
 def main(model_arguments, input_directory, output_directory, mode, resume_training, model, seed,
          checkpoint_path, quantity, patience, batch_size, test_batch_size, num_workers, prefix, device,
          num_devices, epochs, limit_predict_batches):
+
+    # Preset initialization
+    # --------------------------------
     assert mode in ["train", "predict"], f"valid modes are train or predict, not {mode}"
-    check_paths([input_directory, output_directory, checkpoint_path])
+    check_paths(input_directory, output_directory, checkpoint_path)
     init_logging(output_directory, prefix)
     logging.info(f"Predmoter is starting in {mode} mode.")
     set_seed(seed)
     meta = get_meta(input_directory, mode)
     assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
+
+    #  Model initialization
+    # --------------------------------
     if resume_training or mode == "predict":
-        model = "/".join([checkpoint_path.rstrip("/"), model])
+        model = "/".join([checkpoint_path.rstrip("/"), model]) if not os.path.exists(model) else model
+        # if only model name is given/the path doesn't exist, assume model is in the checkpoint directory
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=meta[0])
     else:
         hybrid_model = LitHybridNet(**model_arguments, seq_len=meta[0], input_size=meta[1])
     logging.info(f"\n\nModel summary:\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
+
+    # Training preset initialization
+    # --------------------------------
     callbacks = set_callbacks(output_directory, prefix, checkpoint_path, quantity, patience)
     trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device,
                          max_epochs=epochs, logger=False, enable_progress_bar=False,
                          deterministic=True, limit_predict_batches=limit_predict_batches)
+
     if mode == "train":
         logging.info("Loading training and validation data into memory.")
         train_loader = get_dataloader(input_dir=input_directory, type_="train", shuffle=True,
                                       batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
         val_loader = get_dataloader(input_dir=input_directory, type_="val", shuffle=False,
                                     batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
-        mem_size = (sys.getsizeof(train_loader.dataset.X) + sys.getsizeof(train_loader.dataset.Y) +
-                    sys.getsizeof(val_loader.dataset.X) + sys.getsizeof(val_loader.dataset.Y))/1024**3
-        logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
+        # mem_size = (sys.getsizeof(train_loader.dataset.X) + sys.getsizeof(train_loader.dataset.Y) +
+        #            sys.getsizeof(val_loader.dataset.X) + sys.getsizeof(val_loader.dataset.Y))/1024**3
+        # logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
 
         logging.info(f"Training started. Resuming training: {resume_training}.")
         if resume_training:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader,
-                        val_dataloaders=val_loader, ckpt_path=model)  # restores all previous states
+                        val_dataloaders=val_loader, ckpt_path=model)
+            # restores all previous states like callbacks, optimizer state, etc.
         else:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         logging.info("Training ended.")
@@ -126,12 +140,12 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
         logging.info("Loading test data into memory.")
         test_loader = get_dataloader(input_dir=input_directory, type_="test", shuffle=False,
                                      batch_size=test_batch_size, num_workers=num_workers, seq_len=meta[0])
-        mem_size = sys.getsizeof(test_loader.dataset.X)/1024 ** 3
-        logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
+        # mem_size = sys.getsizeof(test_loader.dataset.X)/1024 ** 3
+        # logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
+
         logging.info("Predicting started.")
         predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
         logging.info("Predicting ended.")
-        # need trainer or use loop?? (limit_predict_batches not possible then)
         predictions = torch.cat(predictions, dim=0)  # unify list of preds to tensor
         torch.save(predictions, "/".join([output_directory.rstrip("/"), f"{prefix}predictions.pt"]))
     logging.info("Predmoter finished.\n")
@@ -146,42 +160,54 @@ if __name__ == "__main__":
     parser.add_argument("-h", "--help", action="help", help="show this help message and exit")  # not included in args
     parser.add_argument("--version", action="version", version="%(prog)s 0.8")  # not included in args
     parser.add_argument("-i", "--input-directory", type=str, default=".",
-                        help="path to a directory containing one train, val and test directory with h5-files")
+                        help="containing one train and val directory for training "
+                             "and/or a test directory for predicting (directories must contain h5 files)")
     parser.add_argument("-o", "--output-directory", type=str, default=".",
-                        help="directory to save log-files and predictions to")
+                        help="receiving log-files and pt-files (predictions); already contains or creates empty "
+                             "subdirectory named checkpoints to save model checkpoints to")
     parser.add_argument("-m", "--mode", type=str, default=None, required=True, help="valid modes: train or predict")
-    parser.add_argument("--resume-training", action="store_true")
+    parser.add_argument("--resume-training", action="store_true",
+                        help="only add argument if you want to resume training")
     parser.add_argument("--model", type=str, default="last.ckpt",
-                        help="name of the model used for predictions or resuming training")  # maybe best_model_path?!
+                        help="model checkpoint file used for predictions or resuming training (if not in "
+                             "checkpoint directory, provide full path")
     parser.add_argument("--seed", type=int, default=None, help="if not provided: will be chosen randomly")
-    parser.add_argument("--checkpoint-path", type=str, default=".",
-                        help="otherwise empty directory to save model checkpoints to")
+    parser.add_argument("--checkpoint-path", type=str, default=None,
+                        help="only specify, if other path than output_directory/checkpoints is preferred")
     parser.add_argument("--quantity", type=str, default="avg_train_accuracy",
                         help="quantity to monitor for checkpoints and early stopping "
                              "(valid: avg_train_loss, avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
     parser.add_argument("--patience", type=int, default=3,
-                        help="allowed epochs without training accuracy improvement before stopping training")
-    parser.add_argument("-b", "--batch-size", type=int, default=100, help="(default: %(default)d)")
-    parser.add_argument("-tb", "--test-batch-size", type=int, default=10, help="(default: %(default)d)")
-    parser.add_argument("--num-workers", type=int, default=8, help="for multiprocessing during data loading")
-    parser.add_argument("--prefix", type=str, default="", help="prefix for loss, accuracy and log files")
+                        help="allowed epochs without the quantity improving before stopping training")
+    parser.add_argument("-b", "--batch-size", type=int, default=195, help="batch size for training and validation data")
+    parser.add_argument("--test-batch-size", type=int, default=100, help="batch size for test data")
+    parser.add_argument("--num-workers", type=int, default=0, help="for multiprocessing during data loading")
+    parser.add_argument("--prefix", type=str, default="", help="prefix for metric, log and prediction files")
     group = parser.add_argument_group("Trainer_arguments")
     group.add_argument("--device", type=str, default="gpu", help="device to train on")
     group.add_argument("--num-devices", type=int, default=1, help="(default: %(default)d)")
     group.add_argument("-e", "--epochs", type=int, default=35, help="(default: %(default)d)")
     group.add_argument("--limit-predict-batches", action="store", dest="limit_predict_batches",
-                       help="limiting predict: float = fraction, int = num_batches (default: 1.0)")
+                       help="limiting predict: float = fraction, int = num_batches "
+                            "(if not specified, will default to 1.0)")
     args = parser.parse_args()
 
-    # limit predict
-    if args.limit_predict_batches is None:
+    # limit predict batches
+    if args.limit_predict_batches is None:  # needed???
         args.limit_predict_batches = 1.0
 
     # prefix
     if args.prefix != "":
+        # prefix still good idea with current setup?; if yes include in checkpoint_path name???
         args.prefix = f"{args.prefix}_"
 
-    # dictionary stuff
+    # checkpoint_path
+    if args.checkpoint_path is None:
+        args.checkpoint_path = "/".join([args.output_directory.rstrip("/"), "checkpoints"])
+    else:
+        assert os.path.exists(args.checkpoint_path), f"the directory {args.checkpoint_path} doesn't exist"
+
+    # model args and other args into separate dictionaries
     dict_model_args = vars(model_args[0])
     dict_args = vars(args)
 
