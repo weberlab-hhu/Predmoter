@@ -17,6 +17,7 @@ class PredmoterSequence(Dataset):
         self.h5_files = h5_files
         self.type_ = type_
         self.X, self.Y = self.create_dataset()  # returns tuple
+        # self.chunks = chunk_count  # returned in dataset function
 
     def __getitem__(self, idx):
         if self.type_ == "test":
@@ -30,11 +31,13 @@ class PredmoterSequence(Dataset):
         X_final, Y_final = [], []
         for idx, h5_file in enumerate(self.h5_files):
             h5df = h5py.File(h5_file, mode="r")
-            X_list, Y_list, n = [], [], 1000  # 1000
-            for i in range(0, len(h5df["data/X"]), n):  # for data saving len(h5df["data/X"])
+            n, mem_size, length = 1000, 0, 0  # 1000
+            for i in range(0, len(h5df["data/X"]), n):  # for data saving; len(h5df["data/X"])
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
                 if self.type_ == "test":
-                    X_list.append(X)
+                    mem_size += sys.getsizeof(X)
+                    length += len(X)
+                    X_final.append(X)
                 else:
                     Y = np.array(h5df["evaluation/atacseq_coverage"][i:i + n], dtype=np.float32)
                     assert np.shape(X)[:2] == np.shape(Y)[:2], "Size mismatch between input and labels."
@@ -45,16 +48,15 @@ class PredmoterSequence(Dataset):
                     X, Y = X[mask], Y[mask]
                     if len(X) != 0:  # if all chunks contain nan don't add them
                         Y = self.encode_one(Y)
-                        X_list.append(X)
-                        Y_list.append(Y)
-            if self.type_ == "test":  # only one file
-                return np.concatenate(X_list, axis=0), None
-            X_final.append(np.concatenate(X_list, axis=0))
-            Y_final.append(np.concatenate(Y_list, axis=0))
-            mem_size = (sys.getsizeof(X_final[idx]) + sys.getsizeof(Y_final[idx]))/1024**3
-            logging.info("The compressed data of file {} with shape {} is {:.4f} Gb in size.".
-                         format(h5_file.split("/")[-1], X_final[idx].shape, mem_size))
-        return np.concatenate(X_final, axis=0), np.concatenate(Y_final, axis=0)
+                        mem_size += (sys.getsizeof(X) + sys.getsizeof(Y))
+                        length += len(X)
+                        X_final.append(X)
+                        Y_final.append(Y)
+            logging.info("The compressed data of file {} with {} chunks is {:.4f} Gb in size.".
+                         format(h5_file.split("/")[-1], length, mem_size/1024**3))
+        X_final = np.concatenate(X_final, axis=0)
+        Y_final = np.concatenate(Y_final, axis=0) if self.type_ != "test" else None
+        return X_final, Y_final  # , chunk_list
 
     def encode_one(self, array):
         array = [self.compressor.encode(arr) for arr in array]
@@ -79,9 +81,9 @@ def collate_fn(batch_list, seq_len):
 
 
 def get_dataloader(input_dir, type_, shuffle, batch_size, num_workers, seq_len):
-    assert type_ in ["train", "val", "test"], "valid types are train, val or test"  # needed? program defines those
     input_dir = "/".join([input_dir.rstrip("/"), type_])
     h5_files = glob.glob(os.path.join(input_dir, "*.h5"))
+    assert len(h5_files) >= 1, f"no input files with type {type_} were provided"
     if type_ == "test":
         assert len(h5_files) == 1, "predictions should only be applied to individual files"
     dataloader = DataLoader(PredmoterSequence(h5_files, type_), batch_size=batch_size,
