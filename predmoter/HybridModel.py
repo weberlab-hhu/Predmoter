@@ -21,7 +21,7 @@ class LitHybridNet(pl.LightningModule):
         self.lstm_layers = lstm_layers
         self.learning_rate = learning_rate
 
-        # for model summary in trainer
+        # example input tensor for model summary
         self.example_input_array = torch.zeros(2, self.seq_len, self.input_size)
 
         # for checkpoints
@@ -30,7 +30,7 @@ class LitHybridNet(pl.LightningModule):
         assert self.cnn_layers > 0, "at least one convolutional layer is required"
 
         assert (self.seq_len % self.step ** self.cnn_layers) == 0, \
-            f"sequence length is not divisible by {self.step} to the power of {self.cnn_layers}"
+            f"sequence length {self.seq_len} is not divisible by {self.step} to the power of {self.cnn_layers}"
 
         # CNN part:
         # --------------------
@@ -118,15 +118,6 @@ class LitHybridNet(pl.LightningModule):
         metrics = {"avg_val_loss": loss, "avg_val_accuracy": acc}
         self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
         return loss
-
-    def test_step(self, batch, batch_idx):  # not needed right now
-        X, Y = batch
-        pred = self(X)
-        loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = self.pear_coeff(pred, Y, is_log=True)
-        metrics = {"loss": loss.item(), "acc": acc.item()}
-        self.log_dict(metrics, logger=False)
-        return metrics
 
     def predict_step(self, batch, batch_idx, **kwargs):
         return self(batch)
