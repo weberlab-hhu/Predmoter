@@ -1,4 +1,3 @@
-import os
 import sys
 import logging
 import glob
@@ -7,6 +6,7 @@ import h5py
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from main import join_paths
 
 
 class PredmoterSequence(Dataset):
@@ -16,8 +16,13 @@ class PredmoterSequence(Dataset):
         super().__init__()  # ?
         self.h5_files = h5_files
         self.type_ = type_
+        self.chunks = []
+        self.total_mem_size = []
         self.X, self.Y = self.create_dataset()  # returns tuple
-        # self.chunks = chunk_count  # returned in dataset function
+
+        if len(self.h5_files) > 1:
+            print("The total compressed data of type {} with {} chunks is {:.4f} Gb in size.".
+                  format(self.type_, sum(self.chunks), sum(self.total_mem_size) / 1024 ** 3))
 
     def __getitem__(self, idx):
         if self.type_ == "test":
@@ -31,29 +36,33 @@ class PredmoterSequence(Dataset):
         X_final, Y_final = [], []
         for idx, h5_file in enumerate(self.h5_files):
             h5df = h5py.File(h5_file, mode="r")
-            n, mem_size, length = 1000, 0, 0  # 1000
+            # avg = h5df["evaluation/average_atacseq_coverage"][0]
+            n, mem_size, chunks = 1000, 0, 0  # 1000
             for i in range(0, len(h5df["data/X"]), n):  # for data saving; len(h5df["data/X"])
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
                 if self.type_ == "test":
                     mem_size += sys.getsizeof(X)
-                    length += len(X)
+                    chunks += len(X)
                     X_final.append(X)
                 else:
                     Y = np.array(h5df["evaluation/atacseq_coverage"][i:i + n], dtype=np.float32)
                     assert np.shape(X)[:2] == np.shape(Y)[:2], "Size mismatch between input and labels."
                     Y[Y < 0] = np.nan  # replace negatives/missing information with nan
                     Y = np.nanmean(Y, axis=2)
+                    # Y = Y / avg
                     Y = np.around(Y, 4)
                     mask = [sum(np.isnan(y)) == 0 for y in Y]  # exclude non-informative regions
                     X, Y = X[mask], Y[mask]
                     if len(X) != 0:  # if all chunks contain nan don't add them
                         Y = self.encode_one(Y)
                         mem_size += (sys.getsizeof(X) + sys.getsizeof(Y))
-                        length += len(X)
+                        chunks += len(X)
                         X_final.append(X)
                         Y_final.append(Y)
+            self.chunks.append(chunks)
+            self.total_mem_size.append(mem_size)
             logging.info("The compressed data of file {} with {} chunks is {:.4f} Gb in size.".
-                         format(h5_file.split("/")[-1], length, mem_size/1024**3))
+                         format(h5_file.split("/")[-1], chunks, mem_size / 1024 ** 3))
         X_final = np.concatenate(X_final, axis=0)
         Y_final = np.concatenate(Y_final, axis=0) if self.type_ != "test" else None
         return X_final, Y_final  # , chunk_list
@@ -80,14 +89,15 @@ def collate_fn(batch_list, seq_len):
     return torch.stack([torch.from_numpy(x).float() for x in batch_list])  # test data/just X
 
 
-def get_dataloader(input_dir, type_, shuffle, batch_size, num_workers, seq_len):
-    input_dir = "/".join([input_dir.rstrip("/"), type_])
-    h5_files = glob.glob(os.path.join(input_dir, "*.h5"))
+def get_dataloader(input_dir, type_, batch_size, num_workers, seq_len):
+    input_dir = join_paths(input_dir, type_)
+    h5_files = glob.glob(join_paths(input_dir, "*.h5"))
     assert len(h5_files) >= 1, f"no input files with type {type_} were provided"
     if type_ == "test":
         assert len(h5_files) == 1, "predictions should only be applied to individual files"
+    shuffle = True if type_ == "train" else False
     dataloader = DataLoader(PredmoterSequence(h5_files, type_), batch_size=batch_size,
                             shuffle=shuffle, pin_memory=True, num_workers=num_workers,
                             collate_fn=lambda batch: collate_fn(batch, seq_len))
-    # lambda function makes it possible to add more arguments than batch to collate_fn
+    # lambda function makes it possible to add more arguments than just batch to collate_fn
     return dataloader
