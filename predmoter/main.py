@@ -1,4 +1,3 @@
-# import sys
 import os
 import glob
 import random
@@ -15,10 +14,16 @@ from dataset import get_dataloader
 from HybridModel import LitHybridNet
 
 
+def join_paths(directory, subdirectory):  # improved os.path.join
+    return "/".join([directory.rstrip("/"), subdirectory])  # subdirectory can also be filename
+
+
 class MetricCallback(Callback):
-    def __init__(self, output_dir, prefix):
+    def __init__(self, output_dir, mode, prefix):
         super().__init__()
-        self.file = "/".join([output_dir.rstrip("/"), f"{prefix}metrics.txt"])
+        self.mode = mode
+        self.filename = f"{prefix}val_metrics.txt" if self.mode == "validate" else f"{prefix}metrics.txt"
+        self.file = join_paths(output_dir, self.filename)
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
@@ -29,22 +34,36 @@ class MetricCallback(Callback):
             msg = "epoch training_loss validation_loss training_accuracy validation_accuracy\n" + msg
         self.save_metrics(msg)
 
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if self.mode == "validate":
+            metrics = trainer.callback_metrics
+            msg = "{} {}".format(metrics["avg_val_loss"], metrics["avg_val_accuracy"])
+            if not os.path.exists(self.file):  # if file already there, the header is not needed
+                msg = "validation_loss validation_accuracy\n" + msg
+            self.save_metrics(msg)
+
     def save_metrics(self, msg):
         with open(self.file, "a") as f:
             f.write(f"{msg}\n")
 
 
-def set_callbacks(output_dir, prefix, checkpoint_path, quantity, patience):
+def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience):
+    if mode == "predict":
+        return None
+
+    metrics_callback = MetricCallback(output_dir, mode, prefix)
+    if mode == "validate":
+        return [metrics_callback]
+
     assert quantity in ["avg_train_loss", "avg_train_accuracy", "avg_val_loss", "avg_val_accuracy"],\
         f"can not monitor invalid quantity: {quantity}"
-    mode = "min" if "loss" in quantity else "max"
+    method = "min" if "loss" in quantity else "max"
     filename = "predmoter_{epoch}_{" + quantity + ":.4f}"  # f-string would mess up formatting
-    metrics_callback = MetricCallback(output_dir, prefix)
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor=quantity, mode=mode, dirpath=checkpoint_path,
+    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor=quantity, mode=method, dirpath=checkpoint_path,
                                           filename=filename, save_on_train_epoch_end=True, save_last=True)
     early_stop = EarlyStopping(monitor=quantity, min_delta=0.0, patience=patience, verbose=False,
-                               mode=mode, strict=True, check_finite=True, check_on_train_epoch_end=True)
-    callbacks = [checkpoint_callback, metrics_callback, early_stop]
+                               mode=method, strict=True, check_finite=True, check_on_train_epoch_end=True)
+    callbacks = [checkpoint_callback, metrics_callback, early_stop]  # adjust for each mode ??
     return callbacks
 
 
@@ -61,24 +80,23 @@ def set_seed(seed):
 def init_logging(output_dir, prefix):
     logging.getLogger("torch").setLevel(logging.WARNING)  # only log info from main.py
     logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    file_name = "/".join([output_dir.rstrip("/"), f"{prefix}predmoter.log"])
+    filename = join_paths(output_dir, f"{prefix}predmoter.log")
 
-    logging.basicConfig(filename=file_name, filemode="a",
+    logging.basicConfig(filename=filename, filemode="a",
                         format="%(asctime)s, %(levelname)s: %(message)s",
                         datefmt="%d.%m.%Y %H:%M:%S", level=logging.DEBUG)
 
 
-def check_paths(input_dir, output_dir, ckpt_path):
-    for path in [input_dir, output_dir]:
+def check_paths(paths):
+    for path in paths:
         assert os.path.exists(path), f"the directory {path} doesn't exist"
-    os.makedirs(ckpt_path, exist_ok=True)
 
 
 def get_meta(input_dir, mode):
-    input_dir = "/".join([input_dir.rstrip("/"), "test"]) if mode == "predict" \
-        else "/".join([input_dir.rstrip("/"), "train"])
-    h5_files = glob.glob(os.path.join(input_dir, '*.h5'))
-    assert len(h5_files) >= 1, "no input file/s were provided"
+    folder = "test" if mode == "predict" else "val"
+    input_dir = join_paths(input_dir, folder)
+    h5_files = glob.glob(join_paths(input_dir, "*.h5"))
+    assert len(h5_files) >= 1, f"no input file/s of type {folder} were provided"
 
     for h5_file in h5_files:
         h5df = h5py.File(h5_file, mode="r")
@@ -90,10 +108,18 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
          checkpoint_path, quantity, patience, batch_size, test_batch_size, num_workers, prefix, device,
          num_devices, epochs, limit_predict_batches):
 
+    # Argument checks and cleanup
+    # --------------------------------
+    if checkpoint_path is None:
+        checkpoint_path = join_paths(output_directory, "checkpoints")
+        os.makedirs(checkpoint_path, exist_ok=True)
+    check_paths([input_directory, output_directory, checkpoint_path])
+    assert mode in ["train",  "validate", "predict"], f"valid modes are train, validate or predict, not {mode}"
+    prefix = f"{prefix}_" if prefix is not None else ""
+    limit_predict_batches = 1.0 if limit_predict_batches is None else limit_predict_batches
+
     # Preset initialization
     # --------------------------------
-    assert mode in ["train", "predict"], f"valid modes are train or predict, not {mode}"
-    check_paths(input_directory, output_directory, checkpoint_path)
     init_logging(output_directory, prefix)
     logging.info(f"Predmoter is starting in {mode} mode.")
     set_seed(seed)
@@ -102,9 +128,10 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
 
     #  Model initialization
     # --------------------------------
-    if resume_training or mode == "predict":
-        model = "/".join([checkpoint_path.rstrip("/"), model]) if not os.path.exists(model) else model
+    if resume_training or mode in ["predict", "validate"]:
+        model = join_paths(checkpoint_path, model) if not os.path.exists(model) else model
         # if only model name is given/the path doesn't exist, assume model is in the checkpoint directory
+        check_paths([model])
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=meta[0])
     else:
         hybrid_model = LitHybridNet(**model_arguments, seq_len=meta[0], input_size=meta[1])
@@ -112,21 +139,19 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
 
     # Training preset initialization
     # --------------------------------
-    callbacks = set_callbacks(output_directory, prefix, checkpoint_path, quantity, patience)
+    callbacks = set_callbacks(output_directory, mode, prefix, checkpoint_path, quantity, patience)
     trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device,
                          max_epochs=epochs, logger=False, enable_progress_bar=False,
                          deterministic=True, limit_predict_batches=limit_predict_batches)
 
+    # Actual program start
+    # --------------------------------
     if mode == "train":
         logging.info("Loading training and validation data into memory.")
-        train_loader = get_dataloader(input_dir=input_directory, type_="train", shuffle=True,
-                                      batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
-        val_loader = get_dataloader(input_dir=input_directory, type_="val", shuffle=False,
-                                    batch_size=batch_size, num_workers=num_workers, seq_len=meta[0])
-        # mem_size = (sys.getsizeof(train_loader.dataset.X) + sys.getsizeof(train_loader.dataset.Y) +
-        #            sys.getsizeof(val_loader.dataset.X) + sys.getsizeof(val_loader.dataset.Y))/1024**3
-        # logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
-
+        train_loader = get_dataloader(input_dir=input_directory, type_="train", batch_size=batch_size,
+                                      num_workers=num_workers, seq_len=meta[0])
+        val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
+                                    num_workers=num_workers, seq_len=meta[0])
         logging.info(f"Training started. Resuming training: {resume_training}.")
         if resume_training:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader,
@@ -136,18 +161,21 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         logging.info("Training ended.")
 
+    elif mode == "validate":
+        logging.info("Loading validation data into memory.")
+        val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
+                                    num_workers=num_workers, seq_len=meta[0])
+        trainer.validate(model=hybrid_model, dataloaders=val_loader)
+
     elif mode == "predict":
         logging.info("Loading test data into memory.")
-        test_loader = get_dataloader(input_dir=input_directory, type_="test", shuffle=False,
-                                     batch_size=test_batch_size, num_workers=num_workers, seq_len=meta[0])
-        # mem_size = sys.getsizeof(test_loader.dataset.X)/1024 ** 3
-        # logging.info(f"Finished loading data into memory. The compressed data is {mem_size:.4f} Gb in size.")
-
+        test_loader = get_dataloader(input_dir=input_directory, type_="test", batch_size=test_batch_size,
+                                     num_workers=num_workers, seq_len=meta[0])
         logging.info("Predicting started.")
         predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
         logging.info("Predicting ended.")
         predictions = torch.cat(predictions, dim=0)  # unify list of preds to tensor
-        torch.save(predictions, "/".join([output_directory.rstrip("/"), f"{prefix}predictions.pt"]))
+        torch.save(predictions, join_paths(output_directory, f"{prefix}predictions.pt"))
     logging.info("Predmoter finished.\n")
 
 
@@ -165,7 +193,8 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output-directory", type=str, default=".",
                         help="receiving log-files and pt-files (predictions); already contains or creates empty "
                              "subdirectory named checkpoints to save model checkpoints to")
-    parser.add_argument("-m", "--mode", type=str, default=None, required=True, help="valid modes: train or predict")
+    parser.add_argument("-m", "--mode", type=str, default=None, required=True,
+                        help="valid modes: train, validate or predict")
     parser.add_argument("--resume-training", action="store_true",
                         help="only add argument if you want to resume training")
     parser.add_argument("--model", type=str, default="last.ckpt",
@@ -182,7 +211,7 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size", type=int, default=195, help="batch size for training and validation data")
     parser.add_argument("--test-batch-size", type=int, default=100, help="batch size for test data")
     parser.add_argument("--num-workers", type=int, default=0, help="for multiprocessing during data loading")
-    parser.add_argument("--prefix", type=str, default="", help="prefix for metric, log and prediction files")
+    parser.add_argument("--prefix", type=str, default=None, help="prefix for metric, log and prediction files")
     group = parser.add_argument_group("Trainer_arguments")
     group.add_argument("--device", type=str, default="gpu", help="device to train on")
     group.add_argument("--num-devices", type=int, default=1, help="(default: %(default)d)")
@@ -192,27 +221,12 @@ if __name__ == "__main__":
                             "(if not specified, will default to 1.0)")
     args = parser.parse_args()
 
-    # limit predict batches
-    if args.limit_predict_batches is None:  # needed???
-        args.limit_predict_batches = 1.0
-
-    # prefix
-    if args.prefix != "":
-        # prefix still good idea with current setup?; if yes include in checkpoint_path name???
-        args.prefix = f"{args.prefix}_"
-
-    # checkpoint_path
-    if args.checkpoint_path is None:
-        args.checkpoint_path = "/".join([args.output_directory.rstrip("/"), "checkpoints"])
-    else:
-        assert os.path.exists(args.checkpoint_path), f"the directory {args.checkpoint_path} doesn't exist"
-
     # model args and other args into separate dictionaries
     dict_model_args = vars(model_args[0])
     dict_args = vars(args)
 
     for key in dict_model_args:
         dict_args.pop(key)
-
+    
     # run main program
     main(model_arguments=dict_model_args, **dict_args)
