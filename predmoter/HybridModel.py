@@ -140,13 +140,25 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def pear_coeff(prediction, target, is_log=True):
+        dims = len(prediction.size())
+        assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
+        if dims == 2:
+            prediction = prediction.transpose(0, 1)
+            target = target.transpose(0, 1)
+
         if is_log:
             prediction = torch.exp(prediction)
-        p = prediction - torch.mean(prediction)
-        t = target - torch.mean(target)
-        coeff = torch.sum(p * t) / (torch.sqrt(torch.sum(p ** 2)) * torch.sqrt(torch.sum(t ** 2)) + 1e-8)
+
+        p = prediction - torch.mean(prediction, dim=0)
+        t = target - torch.mean(target, dim=0)
+        coeff = torch.sum(p * t, dim=0) / (
+                    torch.sqrt(torch.sum(p ** 2, dim=0)) * torch.sqrt(torch.sum(t ** 2, dim=0)) + 1e-8)
         # 1e-8 avoiding division by 0
-        return coeff
+        return torch.mean(coeff)
+
+    @staticmethod
+    def unpack():
+        pass
 
     @staticmethod
     def add_model_specific_args(parent_parser):
