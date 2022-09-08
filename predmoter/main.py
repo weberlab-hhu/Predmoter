@@ -33,7 +33,8 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     #  Model initialization
     # --------------------------------
     if resume_training or mode in ["predict", "validate"]:
-        model = os.path.join(checkpoint_path, model) if not os.path.exists(model) else model
+        if not os.path.exists(model):
+            model = os.path.join(checkpoint_path, model)
         # if only model name is given/the path doesn't exist, assume model is in the checkpoint directory
         check_paths([model])
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=seq_len)
@@ -53,9 +54,9 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     if mode == "train":
         logging.info("Loading training and validation data into memory.")
         train_loader = get_dataloader(input_dir=input_directory, type_="train", batch_size=batch_size,
-                                      num_workers=num_workers, seq_len=seq_len, bases=bases)
+                                      num_workers=num_workers, seq_len=seq_len)
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    num_workers=num_workers, seq_len=seq_len, bases=bases)
+                                    num_workers=num_workers, seq_len=seq_len)
         logging.info(f"Training started. Resuming training: {resume_training}.")
         if resume_training:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader,
@@ -68,13 +69,13 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     elif mode == "validate":
         logging.info("Loading validation data into memory.")
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    num_workers=num_workers, seq_len=seq_len, bases=bases)
+                                    num_workers=num_workers, seq_len=seq_len)
         trainer.validate(model=hybrid_model, dataloaders=val_loader)
 
     elif mode == "predict":
         logging.info("Loading test data into memory.")
         test_loader = get_dataloader(input_dir=input_directory, type_="test", batch_size=test_batch_size,
-                                     num_workers=num_workers, seq_len=seq_len, bases=bases)
+                                     num_workers=num_workers, seq_len=seq_len)
         logging.info("Predicting started.")
         predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
         logging.info("Predicting ended.")
