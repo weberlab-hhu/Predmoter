@@ -102,22 +102,25 @@ class LitHybridNet(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        X, Y = batch
-        pred = self(X)
-        loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = self.pear_coeff(pred, Y, is_log=True)
+        loss, acc = self.step_fn(batch)
         metrics = {"avg_train_loss": loss, "avg_train_accuracy": acc}
         self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")  # log for checkpoints
         return loss
 
     def validation_step(self, batch, batch_idx):
-        X, Y = batch
-        pred = self(X)
-        loss = F.poisson_nll_loss(pred, Y, log_input=True)
-        acc = self.pear_coeff(pred, Y, is_log=True)
+        loss, acc = self.step_fn(batch)
         metrics = {"avg_val_loss": loss, "avg_val_accuracy": acc}
         self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
         return loss
+
+    def step_fn(self, batch):
+        X, Y = batch
+        pred = self(X)
+        mask = torch.sum(X, dim=2)  # zero for any predictions based on padding or Ns
+        pred = pred * mask
+        loss = F.poisson_nll_loss(pred, Y, log_input=True)
+        acc = self.pear_coeff(pred, Y, is_log=True)
+        return loss, acc
 
     def predict_step(self, batch, batch_idx, **kwargs):
         return self(batch)
