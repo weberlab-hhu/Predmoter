@@ -2,6 +2,7 @@ import os
 import random
 import logging
 import glob
+import time
 import numpy as np
 import h5py
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
@@ -37,6 +38,33 @@ class MetricCallback(Callback):
             f.write(f"{msg}\n")
 
 
+class Timeit(Callback):
+    def __init__(self):
+        super().__init__()
+        self.start = 0
+        self.times_called = 0
+        self.durations = []
+        self.last_epoch = 0
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        self.start = time.time()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        self.last_epoch += 1
+        duration = time.time() - self.start
+        self.durations.append(duration)
+
+        msg = "   | {0: <6}| {1:.4f} min".format(trainer.current_epoch, duration/60)
+        if self.times_called == 0:
+            msg = f"\n   | {'Epoch': <6}| {'Duration': <25}\n{'-' * 38}\n" + msg
+        logging.info(msg, extra={"simple": True})
+        self.times_called += 1
+
+    def on_train_end(self, trainer, pl_module):
+        msg = "{0}\n{1: <3}| {2: <6}| {3:.4f} h\n".format("-" * 38, "tot", self.last_epoch, sum(self.durations)/60**2)
+        logging.info(msg, extra={"simple": True})
+
+
 def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience):
     if mode == "predict":
         return None
@@ -53,7 +81,8 @@ def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience)
                                           filename=filename, save_on_train_epoch_end=True, save_last=True)
     early_stop = EarlyStopping(monitor=quantity, min_delta=0.0, patience=patience, verbose=False,
                                mode=method, strict=True, check_finite=True, check_on_train_epoch_end=True)
-    callbacks = [checkpoint_callback, metrics_callback, early_stop]
+    time_callback = Timeit()
+    callbacks = [checkpoint_callback, metrics_callback, early_stop, time_callback]
     return callbacks
 
 
@@ -66,14 +95,24 @@ def set_seed(seed):
     seed_everything(seed=seed, workers=True)  # seed for reproducibility
 
 
-def init_logging(output_dir, prefix):
-    logging.getLogger("torch").setLevel(logging.WARNING)  # only log info from main.py
-    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-    filename = os.path.join(output_dir, f"{prefix}predmoter.log")
+class CustomFormatter(logging.Formatter):
+    def format(self, msg):
+        if hasattr(msg, "simple") and msg.simple:
+            return msg.getMessage()
+        else:
+            return logging.Formatter.format(self, msg)
 
-    logging.basicConfig(filename=filename, filemode="a",
-                        format="%(asctime)s, %(levelname)s: %(message)s",
-                        datefmt="%d.%m.%Y %H:%M:%S", level=logging.DEBUG)
+
+def init_logging(output_dir, prefix):
+    logging.getLogger("torch").setLevel(logging.WARNING)  # only log info from predmoter
+    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
+
+    filename = os.path.join(output_dir, f"{prefix}predmoter.log")
+    handler = logging.FileHandler(filename, mode='a')
+    formatter = CustomFormatter('%(asctime)s, %(levelname)s: %(message)s',
+                                datefmt='%d.%m.%Y %H:%M:%S')
+    handler.setFormatter(formatter)
+    logging.basicConfig(level=logging.DEBUG, handlers=[handler])
 
 
 def check_paths(paths):
