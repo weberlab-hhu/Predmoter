@@ -27,7 +27,8 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     # --------------------------------
     init_logging(output_directory, prefix)
     logging.info(f"Predmoter is starting in {mode} mode.")
-    set_seed(seed)
+    if mode == "train":
+        set_seed(seed)
     seq_len, bases = get_meta(input_directory, mode)
 
     #  Model initialization
@@ -37,10 +38,15 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
             model = os.path.join(checkpoint_path, model)
         # if only model name is given/the path doesn't exist, assume model is in the checkpoint directory
         check_paths([model])
+        logging.info(f"Chosen model checkpoint: {model}")
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=seq_len)
+        assert hybrid_model.input_size == bases,\
+            f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
+            f"Please use the same input size."  # how often would this actually happen?
     else:
         hybrid_model = LitHybridNet(**model_arguments, seq_len=seq_len, input_size=bases)
-    logging.info(f"\n\nModel summary:\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
+    logging.info(f"\n\nModel summary (model type: {hybrid_model.model_type}):"
+                 f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
 
     # Training preset initialization
     # --------------------------------
@@ -52,12 +58,11 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     # Actual program start
     # --------------------------------
     if mode == "train":
-        logging.info("Loading training and validation data into memory.")
         train_loader = get_dataloader(input_dir=input_directory, type_="train", batch_size=batch_size,
-                                      num_workers=num_workers, seq_len=seq_len)
+                                      num_workers=num_workers)
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    num_workers=num_workers, seq_len=seq_len)
-        logging.info(f"Training started. Resuming training: {resume_training}.")
+                                    num_workers=num_workers)
+        logging.info(f"Training started. Resuming training: {resume_training}.")  # to print callback at some point
         if resume_training:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader,
                         val_dataloaders=val_loader, ckpt_path=model)
@@ -67,21 +72,21 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
         logging.info("Training ended.")
 
     elif mode == "validate":
-        logging.info("Loading validation data into memory.")
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    num_workers=num_workers, seq_len=seq_len)
+                                    num_workers=num_workers)
+        logging.info("Validation started.")
         trainer.validate(model=hybrid_model, dataloaders=val_loader)
+        logging.info("Validation ended.")
 
     elif mode == "predict":
-        logging.info("Loading test data into memory.")
         test_loader = get_dataloader(input_dir=input_directory, type_="test", batch_size=test_batch_size,
-                                     num_workers=num_workers, seq_len=seq_len)
+                                     num_workers=num_workers)
         logging.info("Predicting started.")
         predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
         logging.info("Predicting ended.")
         predictions = torch.cat(predictions, dim=0)  # unify list of preds to tensor
         torch.save(predictions, os.path.join(output_directory, f"{prefix}predictions.pt"))
-    logging.info("Predmoter finished.\n")
+    logging.info("Predmoter finished.\n\n")
 
 
 # def main():
