@@ -8,10 +8,11 @@ import pytorch_lightning as pl
 # add way more selves
 class LitHybridNet(pl.LightningModule):
     def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up,
-                 hidden_size, lstm_layers, learning_rate, seq_len, input_size):
+                 hidden_size, lstm_layers, learning_rate, seq_len, input_size, output_size):
         super(LitHybridNet, self).__init__()
         self.seq_len = seq_len
         self.input_size = input_size
+        self.output_size = output_size
         self.model_type = model_type
         self.cnn_layers = cnn_layers
         self.filter_size = filter_size
@@ -64,7 +65,7 @@ class LitHybridNet(pl.LightningModule):
         # Transposed CNN part
         # --------------------
         self.up_layer_list = nn.ModuleList()  # up part of the U-net
-        out_pad = 1 if self.step % 2 == 0 else 0  # uneven step doesn't need output_padding
+        out_pad = 1 if self.step % 2 == 0 else 0  # uneven strides doesn't need output padding
 
         if model_type == "cnn":
             hidden_size = input_size  # was set to the last filter_size in the cnn part
@@ -75,7 +76,7 @@ class LitHybridNet(pl.LightningModule):
         for layer in range(cnn_layers, 0, -1):  # count layers backwards
             l_in = self.seq_len / self.step ** layer
             l_out = l_in * self.step
-            tpad = self.trans_padding(l_in, l_out, self.step, 1, self.kernel_size, out_pad)  # dilation=1
+            tpad = self.trans_padding(l_in, l_out, self.step, 1, self.kernel_size)  # dilation=1
             filter_size = self.filter_list[layer-1]  # iterate backwards over filter_list
             self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, self.kernel_size, stride=self.step,
                                                          padding=tpad, dilation=1, output_padding=out_pad))
@@ -83,7 +84,7 @@ class LitHybridNet(pl.LightningModule):
 
         # Linear part:
         # --------------------
-        self.out = nn.Linear(hidden_size, 1)  # output_size hardcoded
+        self.out = nn.Linear(hidden_size, self.output_size)
 
     def forward(self, x):
         # CNN part:
@@ -113,7 +114,6 @@ class LitHybridNet(pl.LightningModule):
         # Linear part:
         # --------------------
         x = self.out(x)
-        x = x.view(x.size(0), x.size(1))
         return x
 
     def training_step(self, batch, batch_idx):
@@ -131,9 +131,22 @@ class LitHybridNet(pl.LightningModule):
     def step_fn(self, batch):
         X, Y = batch
         pred = self(X)
-        mask = torch.sum(X, dim=2)  # zero for any predictions based on padding or Ns
+
+        # mask padding/chromosome ends
+        # ------------------------------
+        mask = torch.sum(X, dim=2)  # zero for bases that are padding/Ns/chromosome ends
+        mask = mask.reshape(mask.size(0), mask.size(1), 1)
         pred = pred * mask
         Y = Y * mask
+        pred, Y = self.unpack(pred), self.unpack(Y)
+
+        # mask NaNs if there are more than 1 ngs datasets
+        # -------------------------------------------------
+        if self.output_size > 1:
+            mask = [sum(torch.isnan(y)).item() == 0 for y in Y]  # all True where no NaNs are
+            pred, Y = pred[mask], Y[mask]
+            # mask missing atacseq/h3k4me3 data (not every file has both datasets)
+
         loss = F.poisson_nll_loss(pred, Y, log_input=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
         return loss, acc
@@ -147,22 +160,43 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def xpadding(l_in, l_out, stride, dilation, kernel_size):
+        # The padding formula for Conv1d
+
+        # The formula is adapted from the formula for calculating the output sequence length (L_out) from
+        # the Pytorch documentation. The desired Lout is: L_out = L_in/stride.
+
         padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
-        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even l_in
+        # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
         return padding
 
     @staticmethod
-    def trans_padding(l_in, l_out, stride, dilation, kernel_size, output_pad):
+    def trans_padding(l_in, l_out, stride, dilation, kernel_size):
+        # The padding formula for TransposeConv1d
+
+        # The formula is adapted from the formula for calculating the output sequence length (L_out) from
+        # the Pytorch documentation. The desired Lout is: L_out = L_in * stride. The output padding equals
+        # zero, if the stride is uneven, and one otherwise.
+
+        output_pad = 1 if stride % 2 == 0 else 0
         padding = ((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2
         return int(padding)
 
     @staticmethod
     def pear_coeff(prediction, target, is_log=True):
+        # Function to calculate the pearson correlation
+
+        # For two dimensions the program needs to transpose the prediction and target tensors, so
+        # that it compares each tensor to it's target individually instead. Example: two tensors of size:
+        # (3,100), one is the prediction, the other the target. The function will compare the first values
+        # of all three sub-tensors from the prediction with the first values of all three sub-tensors from the
+        # target, then second values of all, then the third and so on. The squeeze function helps to calculate
+        # the pearson correlation of tensors with size (i, 1).
+
         dims = len(prediction.size())
         assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
         if dims == 2:
-            prediction = prediction.transpose(0, 1)
-            target = target.transpose(0, 1)
+            prediction = torch.squeeze(prediction.transpose(0, 1))
+            target = torch.squeeze(target.transpose(0, 1))
 
         if is_log:
             prediction = torch.exp(prediction)
@@ -175,15 +209,19 @@ class LitHybridNet(pl.LightningModule):
         return torch.mean(coeff)
 
     @staticmethod
-    def unpack():
-        pass
+    def unpack(tensor):
+        # unpacks three-dimensional tensors into two dimensions; example: (3,21384,2) into (6,21384)
+        # works like squeeze for shapes with: (i, j, 1)
+        tensor = tensor.transpose(1, 2)
+        tensor = tensor.reshape(tensor.size(0) * tensor.size(1), tensor.size(2))
+        return tensor
 
     @staticmethod
     def add_model_specific_args(parent_parser):
         group = parent_parser.add_argument_group("Model_arguments")
         group.add_argument("--model-type", type=str, default="hybrid",
                            help="The type of model to train. Valid types are cnn, hybrid (CNN + LSTM) and "
-                                "bi-hybrid (CNN + BiLSTM). (default: %(default)d)")
+                                "bi-hybrid (CNN + BiLSTM).")
         group.add_argument("--cnn-layers", type=int, default=1, help="(default: %(default)d)")
         group.add_argument("--filter-size", type=int, default=64, help="(default: %(default)d)")
         group.add_argument("--kernel-size", type=int, default=9, help="(default: %(default)d)")
