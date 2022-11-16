@@ -74,8 +74,8 @@ class PredmoterSequence(Dataset):
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             key_count += 1
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
-                            y = np.mean(y, axis=2)
                             y = (y / np.array(h5df[f"evaluation/{key}_means"])) * 5
+                            y = np.mean(y, axis=2)
                             y = np.around(y, 4)
                             assert np.shape(X)[:2] == np.shape(y)[:2], "Size mismatch between input and labels."
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
