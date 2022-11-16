@@ -51,7 +51,8 @@ class PredmoterSequence(Dataset):
 
         space = 24
         # start logging
-        log_table(["H5 files", "chunks", "mem size (Gb)", "loading time (min)"], spacing=space, header=True)
+        log_table(["H5 files", "Chunks", "NGS datasets", "Mem size (Gb)", "Loading time (min)"], spacing=space,
+                  header=True)
         main_start = time.time()
 
         for idx, h5_file in enumerate(self.h5_files):
@@ -62,7 +63,7 @@ class PredmoterSequence(Dataset):
                 log_table([h5_file.split('/')[-1], f"no {self.keys[0]} data: skipped", "0", "0", "/"], spacing=24)
                 continue
 
-            avg = h5df["evaluation/atacseq_means"]
+            key_count = 0
             n, mem_size, chunks = 1000, 0, 0
             for i in range(0, len(h5df["data/X"]), n):  # for data saving; len(h5df["data/X"])
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
@@ -74,7 +75,7 @@ class PredmoterSequence(Dataset):
                             key_count += 1
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
                             y = np.mean(y, axis=2)
-                            y = (y / avg) * 5
+                            y = (y / np.array(h5df[f"evaluation/{key}_means"])) * 5
                             y = np.around(y, 4)
                             assert np.shape(X)[:2] == np.shape(y)[:2], "Size mismatch between input and labels."
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
@@ -89,12 +90,12 @@ class PredmoterSequence(Dataset):
             self.chunks.append(chunks)
             self.total_mem_size.append(mem_size)
             # more logging
-            log_table([h5_file.split('/')[-1], str(chunks), f"{mem_size / 1024 ** 3:.4f}",
+            log_table([h5_file.split('/')[-1], str(chunks), str(key_count), f"{mem_size / 1024 ** 3:.4f}",
                        f"{(time.time() - file_start) / 60:.2f}"], spacing=space)
 
         # even more logging
         if len(self.h5_files) > 1:
-            log_table([f"all {len(self.h5_files)} files", str(sum(self.chunks)),
+            log_table([f"all {len(self.h5_files)} files", str(sum(self.chunks)), "/",
                        f"{sum(self.total_mem_size) / 1024 ** 3:.4f}", f"{(time.time() - main_start) / 60:.2f}"],
                       spacing=space, table_end=True)
 
