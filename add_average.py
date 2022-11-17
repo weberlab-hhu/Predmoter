@@ -33,6 +33,8 @@ def main(h5_file, keys, overwrite):
                       .format(key, h5_file.split("/")[-1]))
 
         else:
+            assert f"{key}_coverage" in h5df["evaluation"].keys(), f"there is no {key}" \
+                                                                   f" dataset in {h5_file.split('/')[-1]}"
             print("Adding average of {} to {}.".format(key, h5_file.split("/")[-1]))
             h5df.create_dataset(f"evaluation/{key}_means", shape=(len(h5df[f"{key}_meta"]["bam_files"]),),
                                 maxshape=(None,), dtype=float, fillvalue=get_avg(h5df, key))
