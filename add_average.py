@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Avg", description="Add average of chosen NGS dataset to the h5 file.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--h5-file", type=str, default=None, required=True, help="h5 input file")
-    parser.add_argument("--keys", type=str, action="append", required=True,
+    parser.add_argument("--keys", nargs="+", dest="keys", required=True,
                         help="list of keys of which average should be calculated and added to the "
                              "file (--keys atacseq h3k4me3 ...)")
     parser.add_argument("--overwrite", action="store_true",
@@ -56,5 +56,5 @@ if __name__ == "__main__":
 
     assert os.path.isfile(args.h5_file), f"either {args.h5_file} doesn't exists or path is wrong"
     dict_args = vars(args)
-
-    main(**dict_args)
+    print(dict_args)
+    #main(**dict_args)
