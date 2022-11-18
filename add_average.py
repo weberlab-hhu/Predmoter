@@ -56,5 +56,5 @@ if __name__ == "__main__":
 
     assert os.path.isfile(args.h5_file), f"either {args.h5_file} doesn't exists or path is wrong"
     dict_args = vars(args)
-    print(dict_args)
-    #main(**dict_args)
+
+    main(**dict_args)
