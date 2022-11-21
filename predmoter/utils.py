@@ -4,6 +4,8 @@ import logging
 import glob
 import time
 import numpy as np
+# noinspection PyUnresolvedReferences
+import torch  # for item() in metric callback
 import h5py
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 from pytorch_lightning.utilities.seed import seed_everything
@@ -15,22 +17,23 @@ class MetricCallback(Callback):
         self.mode = mode
         self.filename = f"{prefix}val_metrics.log" if self.mode == "validate" else f"{prefix}metrics.log"
         self.file = os.path.join(output_dir, self.filename)
+        self.metric_names = ["epoch", "avg_val_loss", "avg_val_accuracy", "avg_train_loss",
+                             "avg_train_accuracy"] if self.mode == "train" else ["avg_val_loss", "avg_val_accuracy"]
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
         metrics = trainer.callback_metrics  # does not add validation sanity check
-        msg = "{} {} {} {} {}".format(epoch, metrics["avg_train_loss"], metrics["avg_val_loss"],
-                                      metrics["avg_train_accuracy"], metrics["avg_val_accuracy"])
+        msg = " ".join([str(epoch)] + [str(m.item()) for m in list(metrics.values())])
         if epoch == 0:
-            msg = "epoch training_loss validation_loss training_accuracy validation_accuracy\n" + msg
+            msg = " ".join(self.metric_names) + "\n" + msg
         self.save_metrics(msg)
 
     def on_validation_epoch_end(self, trainer, pl_module):
         if self.mode == "validate":
             metrics = trainer.callback_metrics
-            msg = "{} {}".format(metrics["avg_val_loss"], metrics["avg_val_accuracy"])
+            msg = " ".join([str(m.item()) for m in list(metrics.values())])
             if not os.path.exists(self.file):  # if the file is already there, the header is not needed
-                msg = "validation_loss validation_accuracy\n" + msg
+                msg = " ".join(self.metric_names) + "\n" + msg
             self.save_metrics(msg)
 
     def save_metrics(self, msg):
@@ -42,9 +45,11 @@ class Timeit(Callback):
     def __init__(self):
         super().__init__()
         self.start = 0
-        self.times_called = 0
         self.durations = []
         self.last_epoch = 0
+
+    def on_train_start(self, trainer, pl_module):
+        log_table(["Epoch", "Duration (min)"], spacing=16, header=True)
 
     def on_train_epoch_start(self, trainer, pl_module):
         self.start = time.time()
@@ -54,15 +59,10 @@ class Timeit(Callback):
         duration = time.time() - self.start
         self.durations.append(duration)
 
-        msg = "   | {0: <6}| {1:.4f} min".format(trainer.current_epoch, duration/60)
-        if self.times_called == 0:
-            msg = f"\n   | {'Epoch': <6}| {'Duration': <25}\n{'-' * 38}\n" + msg
-        logging.info(msg, extra={"simple": True})
-        self.times_called += 1
+        log_table([str(trainer.current_epoch), f"{duration/60:.2f}"], spacing=16)
 
     def on_train_end(self, trainer, pl_module):
-        msg = "{0}\n{1: <3}| {2: <6}| {3:.4f} h\n".format("-" * 38, "tot", self.last_epoch, sum(self.durations)/60**2)
-        logging.info(msg, extra={"simple": True})
+        log_table([str(self.last_epoch), f"{sum(self.durations)/60**2:.2f} h"], spacing=16, table_end=True)
 
 
 def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience):
@@ -98,14 +98,14 @@ def set_seed(seed):
 class CustomFormatter(logging.Formatter):
     def format(self, msg):
         if hasattr(msg, "simple") and msg.simple:
-            return msg.getMessage()
+            return msg.getMessage()  # if simple exists and is True, print just the message without date & level
         else:
             return logging.Formatter.format(self, msg)
 
 
 def init_logging(output_dir, prefix):
     logging.getLogger("torch").setLevel(logging.WARNING)  # only log info from predmoter
-    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
+    logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)  # exclude warnings
 
     filename = os.path.join(output_dir, f"{prefix}predmoter.log")
     handler = logging.FileHandler(filename, mode='a')
@@ -113,6 +113,20 @@ def init_logging(output_dir, prefix):
                                 datefmt='%d.%m.%Y %H:%M:%S')
     handler.setFormatter(formatter)
     logging.basicConfig(level=logging.DEBUG, handlers=[handler])
+
+
+def log_table(contents, spacing, header=False, table_end=False):
+    contents = [f"{i: <{spacing}}" if len(i) <= spacing else i[:spacing - 2] + ".." for i in contents]
+    # every string will have the length of spacing
+    msg = "|".join(contents)
+
+    if header:
+        msg = "\n" + msg + "\n" + "-" * len(msg)
+
+    elif table_end:
+        msg = "-" * len(msg) + "\n" + msg + "\n"
+
+    logging.info(msg, extra={"simple": True})
 
 
 def check_paths(paths):
