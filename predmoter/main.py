@@ -9,18 +9,19 @@ from utils import check_paths, init_logging, set_seed, get_meta, set_callbacks
 from HybridModel import LitHybridNet
 
 
-def main(model_arguments, input_directory, output_directory, mode, resume_training, model, datasets, seed,
-         checkpoint_path, quantity, patience, batch_size, test_batch_size, prefix, device,
+def main(model_arguments, input_directory, output_directory, mode, resume_training, model, datasets, norm_metric,
+         seed, checkpoint_path, quantity, patience, batch_size, test_batch_size, prefix, device,
          num_devices, epochs, limit_predict_batches):
 
     # Argument checks and cleanup
     # --------------------------------
+    prefix = f"{prefix}_" if prefix is not None else ""
     if checkpoint_path is None:  # and mode != "validate" ??
-        checkpoint_path = os.path.join(output_directory, "checkpoints")
+        checkpoint_path = os.path.join(output_directory, f"{prefix}checkpoints")
         os.makedirs(checkpoint_path, exist_ok=True)
     check_paths([input_directory, output_directory, checkpoint_path])
     assert mode in ["train",  "validate", "predict"], f"valid modes are train, validate or predict, not {mode}"
-    prefix = f"{prefix}_" if prefix is not None else ""
+    assert norm_metric in ["mean", "median", None], f"valid metrics for normalization are mean, median or none"
     limit_predict_batches = 1.0 if limit_predict_batches is None else limit_predict_batches
 
     # Preset initialization
@@ -41,6 +42,9 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
         check_paths([model])
         logging.info(f"Chosen model checkpoint: {model}")
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=seq_len)
+        assert len(datasets) == hybrid_model.output_size,\
+            f"the length {len(datasets)} of the chosen datasets ({' '.join(datasets)}) doesn't match the " \
+            f"output size {hybrid_model.output_size} of the chosen model"
         assert hybrid_model.input_size == bases,\
             f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
             f"Please use the same input size."  # how often would this actually happen?
@@ -60,9 +64,9 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
     # --------------------------------
     if mode == "train":
         train_loader = get_dataloader(input_dir=input_directory, type_="train", batch_size=batch_size,
-                                      seq_len=seq_len, datasets=datasets)
+                                      seq_len=seq_len, datasets=datasets, norm_metric=norm_metric)
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    seq_len=seq_len, datasets=datasets)
+                                    seq_len=seq_len, datasets=datasets, norm_metric=norm_metric)
         logging.info(f"Training started. Resuming training: {resume_training}.")  # to print callback at some point
         if resume_training:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader,
@@ -74,14 +78,14 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
 
     elif mode == "validate":
         val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    seq_len=seq_len, datasets=datasets)
+                                    seq_len=seq_len, datasets=datasets, norm_metric=norm_metric)
         logging.info("Validation started.")
         trainer.validate(model=hybrid_model, dataloaders=val_loader)
         logging.info("Validation ended.")
 
     elif mode == "predict":
         test_loader = get_dataloader(input_dir=input_directory, type_="test", batch_size=test_batch_size,
-                                     seq_len=seq_len, datasets=datasets)
+                                     seq_len=seq_len, datasets=datasets, norm_metric=norm_metric)
         logging.info("Predicting started.")
         predictions = trainer.predict(model=hybrid_model, dataloaders=test_loader)
         logging.info("Predicting ended.")
@@ -113,6 +117,8 @@ if __name__ == "__main__":
                              "checkpoint directory, provide full path")
     parser.add_argument("--datasets", type=str, nargs="+", dest="datasets", default=["atacseq", "h3k4me3"],
                         help="the dataset(s) the network will train on")
+    parser.add_argument("--norm-metric", type=str, default=None, help="metric to normalize data upon read in; "
+                                                                      "median or mean can be used")
     parser.add_argument("--seed", type=int, default=None, help="if not provided: will be chosen randomly")
     parser.add_argument("--checkpoint-path", type=str, default=None,
                         help="only specify, if other path than output_directory/checkpoints is preferred")
