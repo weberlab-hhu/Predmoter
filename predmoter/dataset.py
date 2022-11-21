@@ -14,10 +14,11 @@ from utils import log_table
 class PredmoterSequence(Dataset):
     compressor = numcodecs.blosc.Blosc(cname="blosclz", clevel=9, shuffle=2)  # class variable
 
-    def __init__(self, h5_files, type_, keys):
+    def __init__(self, h5_files, type_, keys, norm_metric):
         super().__init__()
         self.h5_files = h5_files
         self.type_ = type_
+        self.norm_metric = norm_metric
         self.chunks = []
         self.total_mem_size = []
         self.keys = keys
@@ -74,7 +75,8 @@ class PredmoterSequence(Dataset):
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             key_count += 1
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
-                            y = (y / np.array(h5df[f"evaluation/{key}_means"])) * 5
+                            if self.norm_metric is not None:
+                                y = (y / np.array(h5df[f"evaluation/{key}_{self.norm_metric}s"])) * 4
                             y = np.mean(y, axis=2)
                             y = np.around(y, 4)
                             assert np.shape(X)[:2] == np.shape(y)[:2], "Size mismatch between input and labels."
@@ -139,7 +141,7 @@ def collate_fn(batch_list, seq_len, ngs_count):
     return torch.stack([torch.from_numpy(x).float() for x in batch_list])  # test data/just X
 
 
-def get_dataloader(input_dir, type_, batch_size, seq_len, datasets):
+def get_dataloader(input_dir, type_, batch_size, seq_len, datasets, norm_metric):
     # Creates the dataloaders used for training, validating and predicting.
 
     # This function collects all files of a specific type (train, val or test) into a list.
@@ -157,8 +159,8 @@ def get_dataloader(input_dir, type_, batch_size, seq_len, datasets):
     if type_ == "test":
         assert len(h5_files) == 1, "predictions should only be applied to individual files"
     shuffle = True if type_ == "train" else False
-    dataloader = DataLoader(PredmoterSequence(h5_files, type_, keys=datasets), batch_size=batch_size,
-                            shuffle=shuffle, pin_memory=True, num_workers=0,
+    dataloader = DataLoader(PredmoterSequence(h5_files, type_, keys=datasets, norm_metric=norm_metric),
+                            batch_size=batch_size, shuffle=shuffle, pin_memory=True, num_workers=0,
                             collate_fn=lambda batch: collate_fn(batch, seq_len, len(datasets)))
     # lambda function makes it possible to add more arguments than just batch to collate_fn
     return dataloader
