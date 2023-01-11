@@ -14,11 +14,10 @@ from utils import log_table
 class PredmoterSequence(Dataset):
     compressor = numcodecs.blosc.Blosc(cname="blosclz", clevel=9, shuffle=2)  # class variable
 
-    def __init__(self, h5_files, type_, keys, norm_metric):
+    def __init__(self, h5_files, type_, keys):
         super().__init__()
         self.h5_files = h5_files
         self.type_ = type_
-        self.norm_metric = norm_metric
         self.chunks = []
         self.total_mem_size = []
         self.keys = keys
@@ -29,7 +28,7 @@ class PredmoterSequence(Dataset):
                                 f" the chosen h5-files don't contain the dataset(s): {' '.join(self.keys)}"
 
     def __getitem__(self, idx):
-        if self.type_ == "test":
+        if self.type_ == "predict":
             return self.X[idx]
         return self.X[idx], self.Y[idx]
 
@@ -43,8 +42,8 @@ class PredmoterSequence(Dataset):
         # the allocated data is not/only partially freed later, the impact on memory size will be smaller,
         # since that was a big issue requiring way more RAM than was necessary beforehand.
         # If a specific NGS dataset does not exist for a h5 file the array is filled with NaN, unless just one
-        # dataset is chosen, then the file is skipped entirely. For test data, just the DNA data (X)
-        # is read in, since test data usually doesn't have experimental data (Y). The data is normalized by taking
+        # dataset is chosen, then the file is skipped entirely. For prediction data, just the DNA data (X)
+        # is read in, since prediction data usually doesn't have experimental data (Y). The data is normalized by taking
         # the average coverage of each bam_file (origin of the experimental data) and divide the coverage of the
         # bam_files by the average. The averages of the bam_files have been precalculated using the script
         # "add_average.py". The normalized data is multiplied by 5, since around 0-2 reads per base pair
@@ -60,23 +59,22 @@ class PredmoterSequence(Dataset):
             file_start = time.time()
             h5df = h5py.File(h5_file, mode="r")
 
-            if len(self.keys) == 1 and f"{self.keys[0]}_coverage" not in h5df["evaluation"].keys():
+            if len(self.keys) == 1 and f"{self.keys[0]}_coverage" not in h5df["evaluation"].keys() \
+                    and self.type_ != "predict":
                 log_table([h5_file.split('/')[-1], f"no {self.keys[0]} data: skipped", "0", "0", "/"], spacing=24)
                 continue
 
             key_count = 0
             n, mem_size, chunks = 1000, 0, 0
-            for i in range(0, len(h5df["data/X"]), n):  # for data saving; len(h5df["data/X"])
+            for i in range(0, len(h5df["data/X"]), n):  # for saving memory (RAM); len(h5df["data/X"])
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
-                if self.type_ != "test":
+                if self.type_ != "predict":
                     Y = []
                     key_count = 0
                     for key in self.keys:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             key_count += 1
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
-                            if self.norm_metric is not None:
-                                y = (y / np.array(h5df[f"evaluation/{key}_{self.norm_metric}s"], dtype=np.float32)) * 4
                             y = np.mean(y, axis=2)
                             y = np.around(y, 4)
                             assert np.shape(X)[:2] == np.shape(y)[:2], "Size mismatch between input and labels."
@@ -138,14 +136,14 @@ def collate_fn(batch_list, seq_len, ngs_count):
         X = torch.stack([torch.from_numpy(x).float() for x in X])
         Y = torch.stack([decode_one(y, np.float32, (seq_len, ngs_count)) for y in Y])
         return X, Y
-    return torch.stack([torch.from_numpy(x).float() for x in batch_list])  # test data/just X
+    return torch.stack([torch.from_numpy(x).float() for x in batch_list])  # predict data/just X
 
 
-def get_dataloader(input_dir, type_, batch_size, seq_len, datasets, norm_metric):
+def get_dataloader(input_dir, type_, batch_size, seq_len, datasets, file=None):
     # Creates the dataloaders used for training, validating and predicting.
 
-    # This function collects all files of a specific type (train, val or test) into a list.
-    # The test data is used for prediction only. The dataloader is a wrapper around the dataset
+    # This function collects all files of a specific type (train, val, test or predict) into a list.
+    # The predict data is used for prediction only. The dataloader is a wrapper around the dataset
     # from PredmoterSequence. It handles shuffling the training data and the batch size (should be
     # scaled around how much data fits on the GPU). The collate_fn is the function to get the numpy arrays
     # and byte objects from the dataset and convert them to larger (in RAM) and decoded tensors.
@@ -154,12 +152,11 @@ def get_dataloader(input_dir, type_, batch_size, seq_len, datasets, norm_metric)
 
     logging.info(f"Loading {type_} data into memory...")
     input_dir = os.path.join(input_dir, type_)
-    h5_files = glob.glob(os.path.join(input_dir, "*.h5"))
+    # validation and predictions are applied to individual files only
+    h5_files = glob.glob(os.path.join(input_dir, "*.h5")) if file is None else [file]
     assert len(h5_files) >= 1, f"no input files with type {type_} were provided"
-    if type_ == "test":
-        assert len(h5_files) == 1, "predictions should only be applied to individual files"
     shuffle = True if type_ == "train" else False
-    dataloader = DataLoader(PredmoterSequence(h5_files, type_, keys=datasets, norm_metric=norm_metric),
+    dataloader = DataLoader(PredmoterSequence(h5_files, type_, keys=datasets),
                             batch_size=batch_size, shuffle=shuffle, pin_memory=True, num_workers=0,
                             collate_fn=lambda batch: collate_fn(batch, seq_len, len(datasets)))
     # lambda function makes it possible to add more arguments than just batch to collate_fn
