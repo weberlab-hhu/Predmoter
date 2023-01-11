@@ -9,6 +9,7 @@ import torch  # for item() in metric callback
 import h5py
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 from pytorch_lightning.utilities.seed import seed_everything
+#  Please use `lightning_lite.utilities.seed.seed_everything` instead.
 
 
 class MetricCallback(Callback):
@@ -17,24 +18,23 @@ class MetricCallback(Callback):
         self.mode = mode
         self.filename = f"{prefix}val_metrics.log" if self.mode == "validate" else f"{prefix}metrics.log"
         self.file = os.path.join(output_dir, self.filename)
-        self.metric_names = ["epoch", "avg_val_loss", "avg_val_accuracy", "avg_train_loss",
-                             "avg_train_accuracy"] if self.mode == "train" else ["avg_val_loss", "avg_val_accuracy"]
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
         metrics = trainer.callback_metrics  # does not add validation sanity check
         msg = " ".join([str(epoch)] + [str(m.item()) for m in list(metrics.values())])
         if epoch == 0:
-            msg = " ".join(self.metric_names) + "\n" + msg
+            msg = " ".join(list(metrics.keys())) + "\n" + msg  # self.metric_names
         self.save_metrics(msg)
 
-    def on_validation_epoch_end(self, trainer, pl_module):
-        if self.mode == "validate":
-            metrics = trainer.callback_metrics
-            msg = " ".join([str(m.item()) for m in list(metrics.values())])
-            if not os.path.exists(self.file):  # if the file is already there, the header is not needed
-                msg = " ".join(self.metric_names) + "\n" + msg
-            self.save_metrics(msg)
+    def on_test_end(self, trainer, pl_module):
+        metrics = trainer.callback_metrics
+        # just one test dataloader available
+        input_filename = trainer.test_dataloaders[0].dataset.h5_files[0].split("/")[-1]
+        msg = f"{input_filename} " + " ".join([str(m.item()) for m in list(metrics.values())])
+        if not os.path.exists(self.file):  # if the file is already there the header is not needed
+            msg = "species " + " ".join(list(metrics.keys())) + "\n" + msg
+        self.save_metrics(msg)
 
     def save_metrics(self, msg):
         with open(self.file, "a") as f:
@@ -65,7 +65,7 @@ class Timeit(Callback):
         log_table([str(self.last_epoch), f"{sum(self.durations)/60**2:.2f} h"], spacing=16, table_end=True)
 
 
-def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience):
+def set_callbacks(output_dir, mode, prefix, checkpoint_path, ckpt_quantity, save_top_k, stop_quantity, patience):
     if mode == "predict":
         return None
 
@@ -73,14 +73,19 @@ def set_callbacks(output_dir, mode, prefix, checkpoint_path, quantity, patience)
     if mode == "validate":
         return [metrics_callback]
 
-    assert quantity in ["avg_train_loss", "avg_train_accuracy", "avg_val_loss", "avg_val_accuracy"],\
-        f"can not monitor invalid quantity: {quantity}"
-    method = "min" if "loss" in quantity else "max"
-    filename = "predmoter_{epoch}_{" + quantity + ":.4f}"  # f-string would mess up formatting
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor=quantity, mode=method, dirpath=checkpoint_path,
-                                          filename=filename, save_on_train_epoch_end=True, save_last=True)
-    early_stop = EarlyStopping(monitor=quantity, min_delta=0.0, patience=patience, verbose=False,
-                               mode=method, strict=True, check_finite=True, check_on_train_epoch_end=True)
+    for quantity in [ckpt_quantity, stop_quantity]:
+        assert quantity in ["avg_train_loss", "avg_train_accuracy", "avg_val_loss", "avg_val_accuracy"],\
+            f"can not monitor invalid quantity: {quantity}"
+    ckpt_method = "min" if "loss" in ckpt_quantity else "max"
+    filename = "predmoter_{epoch}_{" + ckpt_quantity + ":.4f}"  # f-string would mess up formatting
+    # save_top_k=-1 means every model gets saved
+    checkpoint_callback = ModelCheckpoint(save_top_k=save_top_k, monitor=ckpt_quantity, mode=ckpt_method,
+                                          dirpath=checkpoint_path, filename=filename, save_last=True,
+                                          save_on_train_epoch_end=True)
+    stop_method = "min" if "loss" in stop_quantity else "max"
+    early_stop = EarlyStopping(monitor=stop_quantity, min_delta=0.0, patience=patience, verbose=False,
+                               mode=stop_method, strict=True, check_finite=True,
+                               check_on_train_epoch_end=True)
     time_callback = Timeit()
     callbacks = [checkpoint_callback, metrics_callback, early_stop, time_callback]
     return callbacks
@@ -135,7 +140,14 @@ def check_paths(paths):
 
 
 def get_meta(input_dir, mode):
-    folder = "test" if mode == "predict" else "val"
+    if mode == "train":
+        # tests if files in folder train are provided next in train_loader=get_dataloader()
+        folder = "val"
+    elif mode == "validate":
+        folder = "test"
+    else:
+        folder = "predict"
+
     input_dir = os.path.join(input_dir, folder)
     h5_files = glob.glob(os.path.join(input_dir, "*.h5"))
     assert len(h5_files) >= 1, f"no input file/s of type {folder} were provided"
@@ -146,3 +158,9 @@ def get_meta(input_dir, mode):
         meta = X.shape[1:]
         assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
         return meta
+
+
+def get_available_datasets(h5_file, model_datasets):
+    h5df = h5py.File(h5_file, mode="r")
+    avail_datasets = [dataset for dataset in model_datasets if f"{dataset}_coverage" in h5df["evaluation"].keys()]
+    return avail_datasets
