@@ -2,34 +2,33 @@ import os
 import logging
 import argparse
 import glob
-import torch
 import pytorch_lightning as pl
 from pytorch_lightning.utilities.model_summary import ModelSummary
 from dataset import get_dataloader
-from utils import check_paths, init_logging, set_seed, get_meta, set_callbacks, get_available_datasets
+from utils import check_paths, init_logging, set_seed, set_seed_state,\
+    get_meta, set_callbacks, get_available_datasets, check_alternative_prediction
 from HybridModel import LitHybridNet
 
 
-def main(model_arguments, input_directory, output_directory, mode, resume_training, model, datasets, save_top_k,
-         seed, checkpoint_path, ckpt_quantity, stop_quantity, patience, batch_size, test_batch_size,
-         predict_batch_size, prefix, device, num_devices, epochs, limit_predict_batches):
+def main(model_arguments, input_directory, output_directory, mode, prefix, resume_training, model,
+         datasets, save_top_k, seed, checkpoint_path, ckpt_quantity, stop_quantity, patience,
+         batch_size, test_batch_size, predict_batch_size, add_additional, device, num_devices, epochs):
 
     # Argument checks and cleanup
     # --------------------------------
     prefix = f"{prefix}_" if prefix is not None else ""
-    if checkpoint_path is None:  # and mode != "validate" ??
+    if checkpoint_path is None:
         checkpoint_path = os.path.join(output_directory, f"{prefix}checkpoints")
         os.makedirs(checkpoint_path, exist_ok=True)
     check_paths([input_directory, output_directory, checkpoint_path])
     assert mode in ["train",  "validate", "predict"], f"valid modes are train, validate or predict, not {mode}"
-    limit_predict_batches = 1.0 if limit_predict_batches is None else limit_predict_batches
 
     # Preset initialization
     # --------------------------------
     init_logging(output_directory, prefix)
     logging.info("\n", extra={"simple": True})
     logging.info(f"Predmoter is starting in {mode} mode.")
-    if mode == "train":
+    if mode == "train" and not resume_training:
         set_seed(seed)
     seq_len, bases = get_meta(input_directory, mode)
 
@@ -43,6 +42,10 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
         logging.info(f"Chosen model checkpoint: {model}")
         hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=seq_len)
         datasets = hybrid_model.datasets
+        # always do this AFTER initializing the hybrid_model, else it will NOT be deterministic/reproducible
+        if resume_training:
+            # initializes old seed state from checkpoint, so results will be reproducible
+            set_seed_state(model)
         logging.info(f"Model dataset(s): {' '.join(datasets)}")
         assert hybrid_model.input_size == bases,\
             f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
@@ -51,16 +54,16 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
         logging.info(f"Chosen dataset(s): {' '.join(datasets)}")
         hybrid_model = LitHybridNet(**model_arguments, seq_len=seq_len, input_size=bases,
                                     output_size=len(datasets), datasets=datasets)
-    logging.info(f"\n\nModel summary (model type: {hybrid_model.model_type}):"
+
+    logging.info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
                  f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
 
     # Training preset initialization
     # --------------------------------
-    callbacks = set_callbacks(output_directory, mode, prefix, checkpoint_path,
-                              ckpt_quantity, save_top_k, stop_quantity, patience)
-    trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device,
-                         max_epochs=epochs, logger=False, enable_progress_bar=False,
-                         deterministic=True, limit_predict_batches=limit_predict_batches)
+    callbacks = set_callbacks(output_directory, mode, prefix, seed, checkpoint_path, ckpt_quantity,
+                              save_top_k, stop_quantity, patience, add_additional, model, datasets)
+    trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device, max_epochs=epochs,
+                         logger=False, enable_progress_bar=False, deterministic=True)
 
     # Predmoter start
     # --------------------------------
@@ -101,14 +104,24 @@ def main(model_arguments, input_directory, output_directory, mode, resume_traini
                 trainer.test(model=hybrid_model, dataloaders=val_loader, verbose=False)
 
             else:
+                outfile = f"{prefix}{file.split('/')[-1].split('.')[0]}_predictions.h5"
+                out = os.path.join(output_directory, outfile)
+                if add_additional is not None:
+                    assert os.path.exists(out),\
+                        f"the predictions output file {outfile} doesn't exist in {output_directory}, " \
+                        f"additional predictions can't be added"
+                    check_alternative_prediction(out, add_additional)
+
+                else:
+                    assert not os.path.exists(out), \
+                        f"the predictions output file {outfile} exists in {output_directory} and add-additional " \
+                        f"is None; change the output directory, move the h5 file or define add-additional"
+
                 predict_loader = get_dataloader(input_dir=input_directory, type_=type_,
                                                 batch_size=predict_batch_size, seq_len=seq_len,
                                                 datasets=datasets, file=file)
                 logging.info("Predicting ...")
-                predictions = trainer.predict(model=hybrid_model, dataloaders=predict_loader)
-                predictions = torch.cat(predictions, dim=0)  # unify list of predictions to tensor
-                filename = f"{prefix}{file.split('/')[-1].split('.')[0]}_predictions.pt"
-                torch.save(predictions, os.path.join(output_directory, filename))
+                trainer.predict(model=hybrid_model, dataloaders=predict_loader)
 
         msg = "Validation ended." if mode == "validate" else "Predicting ended."
         logging.info(msg)
@@ -132,6 +145,9 @@ if __name__ == "__main__":
                              "subdirectory named checkpoints to save model checkpoints to")
     parser.add_argument("-m", "--mode", type=str, default=None, required=True,
                         help="valid modes: train, validate or predict")
+    parser.add_argument("--prefix", type=str, default=None,
+                        help="prefix for the metric and main program log files as well as prediction "
+                             "files and the checkpoint directory")
     parser.add_argument("--resume-training", action="store_true",
                         help="only add argument if you want to resume training")
     parser.add_argument("--model", type=str, default="last.ckpt",
@@ -156,19 +172,22 @@ if __name__ == "__main__":
                              "avg_val_loss, avg_val_accuracy)")
     parser.add_argument("--patience", type=int, default=3,
                         help="allowed epochs without the quantity improving before stopping training")
-    parser.add_argument("-b", "--batch-size", type=int, default=195, help="batch size for training and validation data")
-    parser.add_argument("--test-batch-size", type=int, default=150, help="batch size for test data")
-    parser.add_argument("--predict-batch-size", type=int, default=100, help="batch size for prediction data")
-    parser.add_argument("--prefix", type=str, default=None,
-                        help="prefix for the metric and main program log files as well as prediction "
-                             "files and the checkpoint directory")
+    parser.add_argument("-b", "--batch-size", type=int, default=120,
+                        help="batch size for training and validation data during train mode")
+    parser.add_argument("--test-batch-size", type=int, default=120,
+                        help="batch size for test data during validate mode")
+    group = parser.add_argument_group("Predict_arguments")
+    group.add_argument("--predict-batch-size", type=int, default=120,
+                       help="batch size for prediction data during predict mode")
+    group.add_argument("--add-additional", type=str, default=None,
+                       help="adds predictions to an already existing predictions "
+                            "h5-file (output_path/<prefix>_<input_filename>_predictions.h5) "
+                            "under alternative/<add-additional>_prediction")
     group = parser.add_argument_group("Trainer_arguments")
     group.add_argument("--device", type=str, default="gpu", help="device to train on")
     group.add_argument("--num-devices", type=int, default=1, help="number of devices to train on (default recommended)")
     group.add_argument("-e", "--epochs", type=int, default=35, help="number of training runs")
-    group.add_argument("--limit-predict-batches", action="store", dest="limit_predict_batches",
-                       help="limiting predict: float = fraction, int = num_batches "
-                            "(if not specified, will default to 1.0)")
+
     args = parser.parse_args()
 
     # model args and other args into separate dictionaries
