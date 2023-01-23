@@ -7,8 +7,8 @@ import pytorch_lightning as pl
 
 # add way more selves
 class LitHybridNet(pl.LightningModule):
-    def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up, hidden_size,
-                 lstm_layers, dropout, learning_rate, seq_len, input_size, output_size, datasets):
+    def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up, hidden_size, lstm_layers,
+                 dropout, learning_rate, seq_len, input_size, output_size, datasets):
         super(LitHybridNet, self).__init__()
         self.seq_len = seq_len
         self.input_size = input_size
@@ -29,6 +29,7 @@ class LitHybridNet(pl.LightningModule):
         self.example_input_array = torch.zeros(2, self.seq_len, self.input_size)
 
         # for checkpoints
+        # this saves the args from __init__() under the names used there, not the class attributes
         self.save_hyperparameters()
 
         assert model_type in ["cnn", "hybrid", "bi-hybrid"], \
@@ -223,8 +224,15 @@ class LitHybridNet(pl.LightningModule):
         self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
 
     def predict_step(self, batch, batch_idx, **kwargs):
+        mask = torch.sum(batch, dim=2)  # zero for bases that are padding/Ns/chromosome ends
+        mask = mask.reshape(mask.size(0), mask.size(1), 1)
+        mask = mask.bool()
+
         # since the network's predictions are logarithmic, torch.exp() is needed
-        return torch.exp(self(batch))  # sigmoid?
+        preds = torch.exp(self(batch))
+        preds[~mask.repeat(1, 1, self.output_size)] = -1.  # -1 as filler for padding/Ns
+
+        return preds
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
