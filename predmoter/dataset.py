@@ -66,7 +66,7 @@ class PredmoterSequence(Dataset):
 
             key_count = 0
             n, mem_size, chunks = 1000, 0, 0
-            for i in range(0, len(h5df["data/X"]), n):  # for saving memory (RAM); len(h5df["data/X"])
+            for i in range(0, len(h5df["data/X"]), n):  # for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
                 if self.type_ != "predict":
                     Y = []
