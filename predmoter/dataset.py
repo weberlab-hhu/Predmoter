@@ -33,7 +33,7 @@ class PredmoterSequence(Dataset):
         return self.X[idx], self.Y[idx]
 
     def __len__(self):
-        return len(self.X)
+        return sum(self.chunks)
 
     def create_dataset(self):
         # The function to create X and Y and fill the total_mem_size and chunks lists.
@@ -69,6 +69,10 @@ class PredmoterSequence(Dataset):
             for i in range(0, len(h5df["data/X"]), n):  # for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=np.int8)
                 if self.type_ != "predict":
+                    # excluding large assembly gaps
+                    mask = ~np.array([x.all() for x in X])  # True if chunk contains just zeros
+                    X = X[mask]
+
                     Y = []
                     key_count = 0
                     for key in self.keys:
@@ -77,6 +81,7 @@ class PredmoterSequence(Dataset):
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
                             y = np.mean(y, axis=2)
                             y = np.around(y, 4)
+                            y = y[mask]
                             assert np.shape(X)[:2] == np.shape(y)[:2], "Size mismatch between input and labels."
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
