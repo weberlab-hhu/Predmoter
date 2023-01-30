@@ -150,34 +150,25 @@ class LitHybridNet(pl.LightningModule):
 
         # mask padding/chromosome ends
         # ------------------------------
-        mask = torch.sum(X, dim=2)  # zero for bases that are padding/Ns/chromosome ends
-        mask = mask.reshape(mask.size(0), mask.size(1), 1)
-        pred = pred * mask
-        Y = Y * mask
-        # no data in Y is denoted -1 instead of NaN; if it is replaced with NaN,
-        # masking would need to be: Y[torch.where(torch.isnan(Y)==True)]= 0.
+        mask = self.compute_mask(X, self.output_size)
+        pred[mask] = torch.nan
+        Y[mask] = torch.nan
+
         pred, Y = self.unpack(pred), self.unpack(Y)
         # mask NaNs if there is more than 1 ngs dataset
         # -------------------------------------------------
         if self.output_size > 1:
-            mask = [not torch.isnan(y).any() for y in Y]  # all True where no NaNs are
+            mask = [not torch.isnan(y).all() for y in Y]  # False if entire chunk is NaN
             # mask missing atacseq/h3k4me3 data (not every file has both datasets)
             pred, Y = pred[mask], Y[mask]
 
-        loss = F.poisson_nll_loss(pred, Y, log_input=True)
+        loss = self.poisson_nll_loss(pred, Y, is_log=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
         return loss, acc
 
     def test_step(self, batch, batch_idx):
         X, Y = batch
         pred = self(X)
-
-        # mask padding/chromosome ends
-        # ------------------------------
-        mask = torch.sum(X, dim=2)  # zero for bases that are padding (Ns or chromosome ends)
-        mask = mask.reshape(mask.size(0), mask.size(1), 1)
-        pred = pred * mask
-        Y = Y * mask
 
         # just one test dataloader available; keys = dataset(s) used to load test dataset/dataloader;
         # useful if you for example trained the model on 3 datasets but your h5 file just has 1, it is
@@ -186,23 +177,28 @@ class LitHybridNet(pl.LightningModule):
         # get shifted around (better explanation in PredmoterSequence --> reference that then)
         avail_datasets = self.trainer.test_dataloaders[0].dataset.keys
 
+        # mask padding/chromosome ends
+        # ------------------------------
+        mask = self.compute_mask(X, self.output_size)
+        pred[mask] = torch.nan
+
+        mask = self.compute_mask(X, len(avail_datasets))
+        Y[mask] = torch.nan
+
         # calculate individual and total metrics
         # -------------------------------------------------
         metrics = {}
+
+        indices = [self.datasets.index(a) for a in avail_datasets]
+        idxs = [i for i in range(len(avail_datasets))]
+        prefix = "total_avg_val_" if self.output_size > 1 else f"{self.datasets[0]}_avg_val_"
+
+        metrics[f"{prefix}loss"] = self.poisson_nll_loss(self.unpack(pred[:, :, indices]),
+                                                         self.unpack(Y[:, :, idxs]), is_log=True)
+        metrics[f"{prefix}accuracy"] = self.pear_coeff(self.unpack(pred[:, :, indices]),
+                                                       self.unpack(Y[:, :, idxs]), is_log=True)
+
         if self.output_size > 1:
-            indices = [self.datasets.index(a) for a in avail_datasets]
-            prefix = "total_avg_val_"
-
-            if self.datasets == avail_datasets:
-                metrics[f"{prefix}loss"] = F.poisson_nll_loss(self.unpack(pred), self.unpack(Y), log_input=True)
-                metrics[f"{prefix}accuracy"] = self.pear_coeff(self.unpack(pred), self.unpack(Y), is_log=True)
-            else:
-                idxs = [0] if len(avail_datasets) == 1 else indices
-                metrics[f"{prefix}loss"] = F.poisson_nll_loss(self.unpack(pred[:, :, indices]),
-                                                              self.unpack(Y[:, :, idxs]), log_input=True)
-                metrics[f"{prefix}accuracy"] = self.pear_coeff(self.unpack(pred[:, :, indices]),
-                                                               self.unpack(Y[:, :, idxs]), is_log=True)
-
             for i in range(self.output_size):
                 prefix = f"{self.datasets[i]}_avg_val_"
                 if i in indices:
@@ -210,27 +206,21 @@ class LitHybridNet(pl.LightningModule):
                         metrics[f"{prefix}loss"] = metrics["total_avg_val_loss"]
                         metrics[f"{prefix}accuracy"] = metrics["total_avg_val_accuracy"]
                     else:
-                        metrics[f"{prefix}loss"] = F.poisson_nll_loss(pred[:, :, i], Y[:, :, i], log_input=True)
-                        metrics[f"{prefix}accuracy"] = self.pear_coeff(pred[:, :, i], Y[:, :, i], is_log=True)
+                        j = avail_datasets.index(self.datasets[i])
+                        metrics[f"{prefix}loss"] = self.poisson_nll_loss(pred[:, :, i], Y[:, :, j], is_log=True)
+                        metrics[f"{prefix}accuracy"] = self.pear_coeff(pred[:, :, i], Y[:, :, j], is_log=True)
                 else:
                     metrics[f"{prefix}loss"] = torch.tensor([torch.nan])
                     metrics[f"{prefix}accuracy"] = torch.tensor([torch.nan])
 
-        else:
-            prefix = f"{self.datasets[0]}_avg_val_"
-            metrics[f"{prefix}loss"] = F.poisson_nll_loss(self.unpack(pred), self.unpack(Y), log_input=True)
-            metrics[f"{prefix}accuracy"] = self.pear_coeff(self.unpack(pred), self.unpack(Y), is_log=True)
-
         self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
 
     def predict_step(self, batch, batch_idx, **kwargs):
-        mask = torch.sum(batch, dim=2)  # zero for bases that are padding/Ns/chromosome ends
-        mask = mask.reshape(mask.size(0), mask.size(1), 1)
-        mask = mask.bool()
+        mask = self.compute_mask(batch, self.output_size)
 
         # since the network's predictions are logarithmic, torch.exp() is needed
         preds = torch.exp(self(batch))
-        preds[~mask.repeat(1, 1, self.output_size)] = -1.  # -1 as filler for padding/Ns
+        preds[mask] = -1.  # -1 as filler for padding/Ns
 
         return preds
 
@@ -262,6 +252,28 @@ class LitHybridNet(pl.LightningModule):
         return int(padding)
 
     @staticmethod
+    def compute_mask(base_tensor, repeats):
+        mask = torch.sum(base_tensor, dim=2)  # zero for bases that are padding/Ns/chromosome ends
+        mask = mask.reshape(mask.size(0), mask.size(1), 1)
+        mask = mask.bool()
+        # mask.repeat(1, 1, 1) will not change mask tensor
+        mask = mask.repeat(1, 1, repeats)
+        return ~mask
+
+    @staticmethod
+    def poisson_nll_loss(prediction, target, is_log=True):
+        dims = len(prediction.size())
+        assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
+        if is_log:
+            loss = torch.exp(prediction) - target * prediction
+        else:
+            loss = prediction - target * torch.log(prediction + 1e-8)
+
+        if dims > 1:
+            loss = torch.nanmean(loss, dim=1)
+        return torch.nanmean(loss)
+
+    @staticmethod
     def pear_coeff(prediction, target, is_log=True):
         # Function to calculate the pearson correlation
 
@@ -281,10 +293,10 @@ class LitHybridNet(pl.LightningModule):
         if is_log:
             prediction = torch.exp(prediction)
 
-        p = prediction - torch.mean(prediction, dim=0)
-        t = target - torch.mean(target, dim=0)
-        coeff = torch.sum(p * t, dim=0) / (
-                    torch.sqrt(torch.sum(p ** 2, dim=0)) * torch.sqrt(torch.sum(t ** 2, dim=0)) + 1e-8)
+        p = prediction - torch.nanmean(prediction, dim=0)
+        t = target - torch.nanmean(target, dim=0)
+        coeff = torch.nansum(p * t, dim=0) / (
+                torch.sqrt(torch.nansum(p ** 2, dim=0)) * torch.sqrt(torch.nansum(t ** 2, dim=0)) + 1e-8)
         # 1e-8 avoiding division by 0
         return torch.mean(coeff)
 
