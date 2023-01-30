@@ -33,7 +33,7 @@ class MetricCallback(Callback):
         input_filename = trainer.test_dataloaders[0].dataset.h5_files[0].split("/")[-1]
         msg = f"{input_filename} " + " ".join([str(m.item()) for m in list(metrics.values())])
         if not os.path.exists(self.file):  # if the file is already there the header is not needed
-            msg = " ".join(["species"] + list(metrics.keys())) + "\n" + msg
+            msg = " ".join(["file"] + list(metrics.keys())) + "\n" + msg
         self.save_metrics(msg)
 
     def save_metrics(self, msg):
