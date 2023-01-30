@@ -17,7 +17,7 @@ def main(model_arguments, input_directory, output_directory, mode, prefix, resum
     # Argument checks and cleanup
     # --------------------------------
     prefix = f"{prefix}_" if prefix is not None else ""
-    if checkpoint_path is None:
+    if checkpoint_path is None:  # also creates path if you validate and predict, change?
         checkpoint_path = os.path.join(output_directory, f"{prefix}checkpoints")
         os.makedirs(checkpoint_path, exist_ok=True)
     check_paths([input_directory, output_directory, checkpoint_path])
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser = LitHybridNet.add_model_specific_args(parser)  # add model specific args
     model_args = parser.parse_known_args()
     parser.add_argument("-h", "--help", action="help", help="show this help message and exit")  # not included in args
-    parser.add_argument("--version", action="version", version="%(prog)s 1.0")  # not included in args
+    parser.add_argument("--version", action="version", version="%(prog)s 1.1")  # not included in args
     parser.add_argument("-i", "--input-directory", type=str, default=".",
                         help="containing one train and val directory for training "
                              "and/or a test directory for predicting (directories must contain h5 files)")
