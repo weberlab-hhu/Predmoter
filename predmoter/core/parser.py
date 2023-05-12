@@ -1,5 +1,7 @@
 import argparse
 import os
+import warnings
+
 from predmoter.core.constants import PREDMOTER_VERSION
 from predmoter.prediction.HybridModel import LitHybridNet
 
@@ -47,7 +49,7 @@ class PredmoterParser(BaseParser(prog="Predmoter",
         self.config_group.add_argument("--model", type=str, default=None,
                                        help="model checkpoint file for prediction or resuming training (if not "
                                             "<outdir>/<prefix>_checkpoints/last.ckpt, provide full path")
-        # model default: <outdir>/<prefix>_checkpoints/last.ckpt-> just if resume train or resources or None
+        # model default: <outdir>/<prefix>_checkpoints/last.ckpt -> just if resume train or resources or None
         self.config_group.add_argument("--datasets", type=str, nargs="+",
                                        dest="datasets", default=["atacseq", "h3k4me3"],
                                        help="the dataset prefix(es) to use; are overwritten by the model "
@@ -120,7 +122,13 @@ class PredmoterParser(BaseParser(prog="Predmoter",
         # Config checks
         # --------------
         if args.resume_training and args.mode != "train":
-            raise OSError("can only resume training if mode is train")
+            args.resume_training = False
+            warnings.warn("can only resume training if mode is train, resume_training will be set to False")
+
+        if args.mode == "train" and not args.resume_training and args.model is not None:
+            args.model = None
+            # pretraining with different dataset possible through resume_training
+            warnings.warn("starting training for the first time, pretrained model needed, model will be set to None")
 
         if args.resume_training and args.model is None:
             args.model = os.path.join(args.output_dir, f"{args.prefix}checkpoints/last.ckpt")
@@ -129,7 +137,7 @@ class PredmoterParser(BaseParser(prog="Predmoter",
                               f"maybe the prefix is wrong?")
             if not os.path.isfile(args.model):
                 raise OSError(f"default model ({args.model}) for resuming training is not a file, "
-                              f"please don't name directories like this model")
+                              f"please don't give directories this name")
 
         if args.mode != "train":
             if args.model is None:
