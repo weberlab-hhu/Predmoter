@@ -127,8 +127,8 @@ class PredmoterParser(BaseParser(prog="Predmoter",
 
         if args.mode == "train" and not args.resume_training and args.model is not None:
             args.model = None
-            # pretraining with different dataset possible through resume_training
-            warnings.warn("starting training for the first time, pretrained model needed, model will be set to None")
+            warnings.warn("starting training for the first time, if you have a pretrained model "
+                          "(even trained on a different dataset) set resume-training, model will be set to None")
 
         if args.resume_training and args.model is None:
             args.model = os.path.join(args.output_dir, f"{args.prefix}checkpoints/last.ckpt")
