@@ -8,6 +8,7 @@ from predmoter.prediction.HybridModel import LitHybridNet
 
 class BaseParser:
     def __init__(self, prog="", description=""):
+        super(BaseParser, self).__init__()
         self.parser = argparse.ArgumentParser(prog=prog, description=description, add_help=False,
                                               formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         self.parser.add_argument("-h", "--help", action="help", help="show this help message and exit")
@@ -19,6 +20,18 @@ class BaseParser:
         args = self.parser.parse_args()
         self.check_args(args)
         return args
+
+    @staticmethod
+    def str2bool(arg):
+        """Use optional boolean value and default true."""
+        if isinstance(arg, bool):
+            return arg
+        if arg.lower() in ("yes", "true", "t", "y", "1"):
+            return True
+        elif arg.lower() in ("no", "false", "f", "n", "0"):
+            return False
+        else:
+            raise argparse.ArgumentTypeError("boolean value expected")
 
 
 class PredmoterParser(BaseParser(prog="Predmoter",
@@ -55,9 +68,30 @@ class PredmoterParser(BaseParser(prog="Predmoter",
                                        help="the dataset prefix(es) to use; are overwritten by the model "
                                             "checkpoint's dataset prefix(es) if one is chosen (in case of "
                                             "resuming training, testing, predicting)")
-        # mention in docs can handle missing dsets, but please make sure at least one file has this dataset
 
-        self.parser = LitHybridNet.add_model_specific_args(self.parser)
+        self.model_group = self.parser.add_argument_group("Model parameters")
+        self.model_group.add_argument("--model-type", type=str, default="hybrid",
+                                      help="The type of model to train. Valid types are cnn, "
+                                           "hybrid (CNN + LSTM) and bi-hybrid (CNN + bidirectional LSTM).")
+        self.model_group.add_argument("--cnn-layers", type=int, default=1, help="(default: %(default)d)")
+        self.model_group.add_argument("--filter-size", type=int, default=64, help="(default: %(default)d)")
+        self.model_group.add_argument("--kernel-size", type=int, default=9, help="(default: %(default)d)")
+        self.model_group.add_argument("--step", type=int, default=2, help="equals stride")
+        self.model_group.add_argument("--up", type=int, default=2,
+                                      help="multiplier used for up-scaling the convolutional filter per layer")
+        self.model_group.add_argument("--dilation", type=int, default=1,
+                                      help="dilation should be kept at the default, as it isn't that "
+                                           "useful for sequence data")
+        self.model_group.add_argument("--lstm-layers", type=int, default=1, help="(default: %(default)d)")
+        self.model_group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
+        self.model_group.add_argument("--bnorm", type=BaseParser.str2bool, default=True,
+                                      help="add a batch normalization layer after each convolutional layer")
+        self.model_group.add_argument("--dropout", type=float, default=0.,
+                                      help="adds a dropout layer with the specified dropout value after each "
+                                           "LSTM layer except the last; if it is 0. no dropout layers are added;"
+                                           "if there is just one LSTM layer specifying dropout will do nothing")
+        self.model_group.add_argument("-lr", "--learning-rate", type=float, default=0.001,
+                                      help="(default: %(default)f)")
 
         self.trainer_group = self.parser.add_argument_group("Trainer/callback parameters")
         self.trainer_group.add_argument("--seed", type=int, default=None,
@@ -149,7 +183,19 @@ class PredmoterParser(BaseParser(prog="Predmoter",
 
         # Model checks
         # -------------
-        # the model argument are checked when the model is initialized
+        assert args.model_type in ["cnn", "hybrid", "bi-hybrid"], \
+            f"valid model types are cnn, hybrid and bi-hybrid not {args.model_type}"
+
+        for key, value in {"cnn-layers": args.cnn_layers, "filter-size": args.filter_size,
+                           "kernel-size": args.kernel_size, "step": args.step, "up": args.up,
+                           "dilation": args.dilation, "lstm-layers": args.lstm_layers,
+                           "hidden-size": args.hidden_size}.items():
+            if value <= 0:
+                raise ValueError(f"{key} needs to be > 0, not {value}")
+
+        for key, value in {"dropout": args.dropout, "learning-rate": args.learning_rate}:
+            if value > 1 or value < 0:
+                raise ValueError(f"{key} needs to be > 0 and < 1, not {value}")
 
         # Trainer checks
         # ---------------

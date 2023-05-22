@@ -4,11 +4,13 @@ from torch import nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
+from predmoter.core.constants import EPS
+
 
 # add way more selves
 class LitHybridNet(pl.LightningModule):
-    def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up, hidden_size, lstm_layers,
-                 dropout, learning_rate, seq_len, input_size, output_size, datasets):
+    def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up, dilation, lstm_layers,
+                 hidden_size, bnorm, dropout, learning_rate, seq_len, input_size, output_size, datasets):
         super(LitHybridNet, self).__init__()
         self.seq_len = seq_len
         self.input_size = input_size
@@ -19,8 +21,10 @@ class LitHybridNet(pl.LightningModule):
         self.kernel_size = kernel_size
         self.step = step
         self.up = up
-        self.hidden_size = hidden_size
+        self.dilation = dilation
         self.lstm_layers = lstm_layers
+        self.hidden_size = hidden_size
+        self.bnorm = bnorm
         self.dropout = dropout
         self.learning_rate = learning_rate
         self.datasets = datasets
@@ -32,28 +36,26 @@ class LitHybridNet(pl.LightningModule):
         # this saves the args from __init__() under the names used there, not the class attributes
         self.save_hyperparameters()
 
-        assert model_type in ["cnn", "hybrid", "bi-hybrid"], \
-            f"valid model types are cnn, hybrid and bi-hybrid not {model_type}"
-
-        assert self.cnn_layers > 0, "at least one convolutional layer is required"
-
-        assert (self.seq_len % self.step ** self.cnn_layers) == 0, \
-            f"sequence length {self.seq_len} is not divisible by a step of {self.step} " \
-            f"to the power of {self.cnn_layers} cnn layers"
+        # Check seq_len
+        # ----------------------
+        if (self.seq_len % self.step ** self.cnn_layers) != 0:
+            raise ValueError(f"sequence length {self.seq_len} is not divisible by a step of {self.step} "
+                             f"to the power of {self.cnn_layers} cnn layers")
 
         # CNN part:
-        # --------------------
+        # ----------------------
         self.down_layer_list = nn.ModuleList()  # down part of the U-net
         self.filter_list = []
 
         for layer in range(self.cnn_layers):
             l_in = self.seq_len / self.step ** layer
             l_out = self.seq_len / self.step ** (layer + 1)
-            xpad = self.xpadding(l_in, l_out, self.step, 1, self.kernel_size)  # dilation=1
+            xpad = self.xpadding(l_in, l_out, self.step, self.dilation, self.kernel_size)
 
-            self.down_layer_list.append(nn.Conv1d(input_size, filter_size, self.kernel_size, stride=self.step,
-                                                  padding=xpad, dilation=1))
-            self.down_layer_list.append(nn.BatchNorm1d(filter_size))
+            self.down_layer_list.append(nn.Conv1d(input_size, filter_size, self.kernel_size,
+                                                  stride=self.step, padding=xpad, dilation=self.dilation))
+            if self.bnorm:
+                self.down_layer_list.append(nn.BatchNorm1d(filter_size))
             self.filter_list.append(input_size)  # example: [4, 64, 128]; the last input_size is not needed
             input_size = filter_size
             filter_size = filter_size * self.up
@@ -65,77 +67,80 @@ class LitHybridNet(pl.LightningModule):
             hidden_size = hidden_size * 2  # bidirectional doubles hidden size
 
         # LSTM part:
-        # --------------------
+        # ----------------------
         if model_type != "cnn":
             bidirectional = True if model_type == "bi-hybrid" else False
-            # input: last dimension of tensor, output:(batch,new_seq_len,hidden_size)
+            # input: last dimension of tensor, output: (batch, new_seq_len, hidden_size)
             self.lstm = nn.LSTM(input_size=input_size, hidden_size=self.hidden_size,
                                 num_layers=self.lstm_layers, batch_first=True,
                                 bidirectional=bidirectional, dropout=self.dropout)
 
-            self.bnorm = nn.BatchNorm1d(hidden_size)
-
-        # Transposed CNN part
-        # --------------------
+        # Transposed CNN part:
+        # ----------------------
         self.up_layer_list = nn.ModuleList()  # up part of the U-net
         out_pad = 1 if self.step % 2 == 0 else 0  # uneven strides doesn't need output padding
 
         for layer in range(cnn_layers, 0, -1):  # count layers backwards
             l_in = self.seq_len / self.step ** layer
             l_out = l_in * self.step
-            tpad = self.trans_padding(l_in, l_out, self.step, 1, self.kernel_size)  # dilation=1
+            tpad = self.trans_padding(l_in, l_out, self.step, self.dilation, self.kernel_size)
             filter_size = self.filter_list[layer-1]  # iterate backwards over filter_list
-            self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, self.kernel_size, stride=self.step,
-                                                         padding=tpad, dilation=1, output_padding=out_pad))
-            self.up_layer_list.append(nn.BatchNorm1d(filter_size))
+            self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, self.kernel_size,
+                                                         stride=self.step, padding=tpad, dilation=self.dilation,
+                                                         output_padding=out_pad))
+            if self.bnorm:
+                self.up_layer_list.append(nn.BatchNorm1d(filter_size))
             hidden_size = filter_size
 
         # Linear part:
-        # --------------------
+        # ----------------------
         self.out = nn.Linear(hidden_size, self.output_size)
 
     def forward(self, x):
         # CNN part:
-        # --------------------
+        # ----------------------
         x = x.transpose(1, 2)  # convolution over the base pairs, change position of 2. and 3. dimension
 
         for i, layer in enumerate(self.down_layer_list):
-            if i % 2 == 0:
-                x = F.relu(layer(x))
+            if self.bnorm:
+                if i % 2 == 0:
+                    x = F.relu(layer(x))
+                else:
+                    x = layer(x)
             else:
-                x = layer(x)
+                x = F.relu(layer(x))
 
         if self.model_type != "cnn":
             x = x.transpose(1, 2)
 
             # LSTM part:
-            # --------------------
-            # size of hidden and cell state: (num_layers,batch_size,hidden_size)
-            x, _ = self.lstm(x)  # _=(hn, cn)
+            # ----------------------
+            # size of hidden and cell state: (num_layers, batch_size, hidden_size)
+            x, _ = self.lstm(x)  # _ = (hn, cn)
 
             x = x.transpose(1, 2)
 
-            x = self.bnorm(x)
-
-        # Transposed CNN part
-        # --------------------
+        # Transposed CNN part:
+        # ----------------------
         for i, layer in enumerate(self.up_layer_list):
-            if i % 2 == 0:
-                x = F.relu(layer(x))
+            if self.bnorm:
+                if i % 2 == 0:
+                    x = F.relu(layer(x))
+                else:
+                    x = layer(x)
             else:
-                x = layer(x)
+                x = F.relu(layer(x))
 
         x = x.transpose(1, 2)
 
         # Linear part:
-        # --------------------
-        x = self.out(x)
-        return x
+        # ----------------------
+        return self.out(x)
 
     def training_step(self, batch, batch_idx):
         loss, acc = self.step_fn(batch)
         metrics = {"avg_train_loss": loss, "avg_train_accuracy": acc}
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")  # log for checkpoints
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")  # log for callbacks
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -158,8 +163,8 @@ class LitHybridNet(pl.LightningModule):
         # mask NaNs if there is more than 1 ngs dataset
         # -------------------------------------------------
         if self.output_size > 1:
-            mask = [not torch.isnan(y).all() for y in Y]  # False if entire chunk is NaN
-            # mask missing atacseq/h3k4me3 data (not every file has both datasets)
+            mask = [not y[0] == -3 for y in Y]  # False if -3 fill value in tensor
+            # mask missing ngs data (not every file has every dataset)
             pred, Y = pred[mask], Y[mask]
 
         loss = self.poisson_nll_loss(pred, Y, is_log=True)
@@ -170,12 +175,9 @@ class LitHybridNet(pl.LightningModule):
         X, Y = batch
         pred = self(X)
 
-        # just one test dataloader available; keys = dataset(s) used to load test dataset/dataloader;
-        # useful if you for example trained the model on 3 datasets but your h5 file just has 1, it is
-        # a waste of memory to add 2 datasets filled with NaN (see PredmoterSequence in dataset.py), since
-        # this technique is used so data of multiple files with different datasets available doesn't
-        # get shifted around (better explanation in PredmoterSequence --> reference that then)
-        avail_datasets = self.trainer.test_dataloaders[0].dataset.keys
+        # retrieve the dataset's dataset(s) from the one test dataloader
+        # helpful if e.g. the model is trained on 3 datasets, but the test set has just 1
+        avail_datasets = self.trainer.test_dataloaders[0].dataset.dsets
 
         # mask padding/chromosome ends
         # ------------------------------
@@ -230,30 +232,55 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def xpadding(l_in, l_out, stride, dilation, kernel_size):
-        # The padding formula for Conv1d
+        """Padding formula for Conv1d.
 
-        # The formula is adapted from the formula for calculating the output sequence length (L_out) from
-        # the Pytorch documentation. The desired Lout is: L_out = L_in/stride.
+        The formula is adapted the formula for calculating the output sequence length (L_out)
+        from the Pytorch documentation. The desired Lout is: L_out = L_in/stride.
 
+            Args:
+                l_in: 'int', input sequence length
+                l_out: 'int', output sequence length
+                stride: 'int', strides/steps of kernel points
+                dilation: 'int', spacing between kernel points
+                kernel_size: 'int'
+
+            Returns:
+                padding: 'int', padding needed to achieve division without remainder
+                    of sequence length, e.g. input seq_len: 10, stride: 2, expected/
+                    necessary output seq_len: 5
+        """
         padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
         # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
         return padding
 
     @staticmethod
     def trans_padding(l_in, l_out, stride, dilation, kernel_size):
-        # The padding formula for TransposeConv1d
+        """Padding formula for TransposeConv1d.
 
-        # The formula is adapted from the formula for calculating the output sequence length (L_out) from
-        # the Pytorch documentation. The desired Lout is: L_out = L_in * stride. The output padding equals
-        # zero, if the stride is uneven, and one otherwise.
+        The formula is adapted the formula for calculating the output sequence length (L_out)
+        from the Pytorch documentation. The desired Lout is: L_out = L_in * stride. The output
+        padding equals zero, if the stride is uneven, and one otherwise.
 
+            Args:
+                l_in: 'int', input sequence length
+                l_out: 'int', output sequence length
+                stride: 'int', strides/steps of kernel points
+                dilation: 'int', spacing between kernel points
+                kernel_size: 'int'
+
+            Returns:
+                padding: 'int', padding needed to achieve multiplication "without remainder"
+                    of sequence length, e.g. input seq_len: 5, stride: 2, expected/
+                    necessary output seq_len: 10
+        """
         output_pad = 1 if stride % 2 == 0 else 0
         padding = ((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2
         return int(padding)
 
     @staticmethod
     def compute_mask(base_tensor, repeats):
-        mask = torch.sum(base_tensor, dim=2)  # zero for bases that are padding/Ns/chromosome ends
+        """Compute mask to exclude padding/Ns."""
+        mask = torch.sum(base_tensor, dim=2)  # zero for bases that are padding/Ns
         mask = mask.reshape(mask.size(0), mask.size(1), 1)
         mask = mask.bool()
         # mask.repeat(1, 1, 1) will not change mask tensor
@@ -267,7 +294,7 @@ class LitHybridNet(pl.LightningModule):
         if is_log:
             loss = torch.exp(prediction) - target * prediction
         else:
-            loss = prediction - target * torch.log(prediction + 1e-8)
+            loss = prediction - target * torch.log(prediction + EPS)
 
         if dims > 1:
             loss = torch.nanmean(loss, dim=1)
@@ -275,14 +302,21 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def pear_coeff(prediction, target, is_log=True):
-        # Function to calculate the pearson correlation
+        """Calculate the pearson correlation coefficient.
 
-        # For two dimensions the program needs to transpose the prediction and target tensors, so
-        # that it compares each tensor to it's target individually instead. Example: two tensors of size:
-        # (3,100), one is the prediction, the other the target. The function will compare the first values
-        # of all three sub-tensors from the prediction with the first values of all three sub-tensors from the
-        # target, then second values of all, then the third and so on. The squeeze function helps to calculate
-        # the pearson correlation of tensors with size (i, 1).
+        This function only accepts tensors with a maximum of 2 dimensions. It excludes NaNs
+        so that NaN can be used for positions to be masked as masked tensors are at present
+        still in development.
+
+            Args:
+                prediction: 'torch.tensor', models' predictions
+                target: 'torch.tensor', targets/labels
+                is_log: 'bool', if True (default) assumes the models' predictions are logarithmic
+
+            Returns:
+                'torch.tensor', average pearson correlation coefficient (correlation between
+                    predictions and targets are calculated per chunk and then averaged)
+        """
 
         dims = len(prediction.size())
         assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
@@ -296,35 +330,24 @@ class LitHybridNet(pl.LightningModule):
         p = prediction - torch.nanmean(prediction, dim=0)
         t = target - torch.nanmean(target, dim=0)
         coeff = torch.nansum(p * t, dim=0) / (
-                torch.sqrt(torch.nansum(p ** 2, dim=0)) * torch.sqrt(torch.nansum(t ** 2, dim=0)) + 1e-8)
-        # 1e-8 avoiding division by 0
+                torch.sqrt(torch.nansum(p ** 2, dim=0)) * torch.sqrt(torch.nansum(t ** 2, dim=0)) + EPS)
+        # EPS to avoid division by 0
         return torch.mean(coeff)
 
     @staticmethod
-    def unpack(tensor):
-        # unpacks three-dimensional tensors into two dimensions; example: (3,21384,2) into (6,21384)
-        # works like torch.squeeze() for shapes with dimensions: (i, j, 1)
+    def unpack(tensor):  # check if it works for dimensions greater than 3 -> really needed?
+        """Reduce dimensionality of tensors.
+
+        3-dimensional tensors are unpacked into 2-dimensional tensors, e.g. (3, 500, 2) gets
+        unpacked to (6, 500). It works like torch.squeeze() for tensors with the size (i, j, 1).
+
+            Args:
+                tensor: 'torch.tensor', input tensor of 3 dimensions
+
+            Returns:
+                tensor: 'torch.tensor', tensor of 2 dimensions
+        """
+
         tensor = tensor.transpose(1, 2)
         tensor = tensor.reshape(tensor.size(0) * tensor.size(1), tensor.size(2))
         return tensor
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        group = parent_parser.add_argument_group("Model_arguments")
-        group.add_argument("--model-type", type=str, default="hybrid",
-                           help="The type of model to train. Valid types are cnn, hybrid (CNN + LSTM) and "
-                                "bi-hybrid (CNN + BiLSTM).")
-        group.add_argument("--cnn-layers", type=int, default=1, help="(default: %(default)d)")
-        group.add_argument("--filter-size", type=int, default=64, help="(default: %(default)d)")
-        group.add_argument("--kernel-size", type=int, default=9, help="(default: %(default)d)")
-        group.add_argument("--step", type=int, default=2, help="equals stride")
-        group.add_argument("--up", type=int, default=2,
-                           help="multiplier used for up-scaling each convolutional layer")
-        group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
-        group.add_argument("--lstm-layers", type=int, default=1, help="(default: %(default)d)")
-        group.add_argument("--dropout", type=float, default=0.,
-                           help="adds a dropout layer with the specified dropout value after each "
-                                "LSTM layer except the last; if it is 0. no dropout layers are added;"
-                                "if there is just one LSTM layer specifying dropout will do nothing")
-        group.add_argument("-lr", "--learning-rate", type=float, default=0.001, help="(default: %(default)f)")
-        return parent_parser
