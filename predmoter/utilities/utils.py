@@ -1,4 +1,5 @@
 import os
+import argparse
 import logging
 import sys
 import glob
@@ -99,7 +100,7 @@ def get_h5_data(input_dir, mode, dsets):
             available_datasets = get_available_datasets(file, dsets)
             dset_counter.update(available_datasets)
             if len(available_datasets) == 0:
-                skip_files.append(file)
+                skip_files.append(file_stem(file))
                 h5_files.remove(file)
         # after excluding files not having the specified datasets (either from a model
         # checkpoint or user defined), make sure there are files left
@@ -115,7 +116,7 @@ def get_h5_data(input_dir, mode, dsets):
                                      f"please only choose datasets that are available in your {type_} set")
 
         if len(skip_files) >= 1:
-            log.warning(f"The files {', '.join(skip_files)} don't contain the chosen/model's "
+            log.warning(f"The h5 files {', '.join(skip_files)} don't contain the chosen/model's "
                         f"datasets {', '.join(dsets)} and will be skipped.")
         # add files to data if no errors occurred
         h5_data[type_] = h5_files.sort()  # sort alphabetically -> keep file order for reproducibility
@@ -134,3 +135,8 @@ def get_meta(h5_files):
         meta = X.shape[1:]
         assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
         return meta
+
+
+def file_stem(path):
+    """Returns the file name without extension. Adapted from Helixer."""
+    return os.path.basename(path).split('.')[0]
