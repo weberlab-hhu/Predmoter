@@ -1,201 +1,149 @@
 import os
 import logging
-import argparse
-import glob
-import pytorch_lightning as pl
-from pytorch_lightning.utilities.model_summary import ModelSummary
-from dataset import get_dataloader
-from utils import check_paths, init_logging, set_seed, set_seed_state,\
-    get_meta, set_callbacks, get_available_datasets, check_alternative_prediction
-from HybridModel import LitHybridNet
+import logging.config
+import torch
+from torch.utils.data import DataLoader
+import lightning.pytorch as pl
+from lightning.pytorch.utilities.model_summary import ModelSummary
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+
+from predmoter.core.constants import PREDMOTER_VERSION
+from predmoter.core.parser import PredmoterParser
+from predmoter.prediction.callbacks import SeedCallback, MetricCallback, Timeit, PredictCallback
+from predmoter.utilities.utils import get_log_dict, get_h5_data, get_meta, get_available_datasets, file_stem
+from predmoter.prediction.HybridModel import LitHybridNet
+from predmoter.utilities.dataset import PredmoterSequence
 
 
-def main(model_arguments, input_directory, output_directory, mode, prefix, resume_training, model,
-         datasets, save_top_k, seed, checkpoint_path, ckpt_quantity, stop_quantity, patience,
-         batch_size, test_batch_size, predict_batch_size, add_additional, device, num_devices, epochs):
+def main():
+    pp = PredmoterParser()
+    args = pp.get_args()
+    if args.resume_training or args.mode in ["test", "predict"]:
+        args.datasets = torch.load(args.model)["hyper_parameters"]["datasets"]
 
-    # Argument checks and cleanup
-    # --------------------------------
-    prefix = f"{prefix}_" if prefix is not None else ""
-    if checkpoint_path is None:  # also creates path if you validate and predict, change?
-        checkpoint_path = os.path.join(output_directory, f"{prefix}checkpoints")
-        os.makedirs(checkpoint_path, exist_ok=True)
-    check_paths([input_directory, output_directory, checkpoint_path])
-    assert mode in ["train",  "validate", "predict"], f"valid modes are train, validate or predict, not {mode}"
+    # Logging
+    # ----------------------
+    logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
+    log = logging.getLogger(__name__)
+    log.info("\n", extra={"simple": True})
+    log.info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
 
-    # Preset initialization
-    # --------------------------------
-    init_logging(output_directory, prefix)
-    logging.info("\n", extra={"simple": True})
-    logging.info(f"Predmoter is starting in {mode} mode.")
-    if mode == "train" and not resume_training:
-        set_seed(seed)
-    seq_len, bases = get_meta(input_directory, mode)
-
-    #  Model initialization
-    # --------------------------------
-    if resume_training or mode in ["predict", "validate"]:
-        # if only model name is given/the path doesn't exist, assume model is in the checkpoint directory
-        if not os.path.exists(model):
-            model = os.path.join(checkpoint_path, model)
-        check_paths([model])
-        logging.info(f"Chosen model checkpoint: {model}")
-        hybrid_model = LitHybridNet.load_from_checkpoint(model, seq_len=seq_len)
-        datasets = hybrid_model.datasets
-        # always do this AFTER initializing the hybrid_model, else it will NOT be deterministic/reproducible
-        if resume_training:
-            # initializes old seed state from checkpoint, so results will be reproducible
-            set_seed_state(model)
-        logging.info(f"Model dataset(s): {' '.join(datasets)}")
-        assert hybrid_model.input_size == bases,\
-            f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
-            f"Please use the same input size."  # how often would this actually happen?
+    # Check configurations
+    # ----------------------
+    if args.mode != "predict":
+        h5_data = get_h5_data(args.input_dir, args.mode, args.datasets)  # dictionary of h5_files
     else:
-        logging.info(f"Chosen dataset(s): {' '.join(datasets)}")
-        hybrid_model = LitHybridNet(**model_arguments, seq_len=seq_len, input_size=bases,
-                                    output_size=len(datasets), datasets=datasets)
+        h5_data = {"predict": args.filepath}  # at some point: args.filepath and predict file inspection here
 
-    logging.info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
-                 f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
+    # Callbacks and Trainer
+    # ----------------------
+    if args.mode == "train":
+        # device if resume training --> works if seed callback has torch.cuda?
+        include_cuda = True if args.device == "gpu" else False
 
-    # Training preset initialization
-    # --------------------------------
-    callbacks = set_callbacks(output_directory, mode, prefix, seed, checkpoint_path, ckpt_quantity,
-                              save_top_k, stop_quantity, patience, add_additional, model, datasets)
-    trainer = pl.Trainer(callbacks=callbacks, devices=num_devices, accelerator=device, max_epochs=epochs,
-                         logger=False, enable_progress_bar=False, deterministic=True)
+        ckpt_path = os.path.join(args.output_dir, f"{args.prefix}checkpoints")
+        os.makedirs(ckpt_path, exist_ok=True)
+        if not args.resume_training and len(os.listdir(ckpt_path)) > 0:
+            log.warning("Starting training for the first time and the checkpoint directory is not empty, "
+                        "if this is intentional you can ignore this message")
+        ckpt_method = "min" if "loss" in args.ckpt_quantity else "max"
+        ckpt_filename = "predmoter_v{" + PREDMOTER_VERSION + "}_{epoch}_{" + args.ckpt_quantity + ":.4f}"
+        # f-string would mess up formatting
+        if args.save_top_k == 0:
+            log.warning("save-top-k = 0 means no models will be saved, "
+                        "if this is intentional you can ignore this message")
+
+        stop_method = "min" if "loss" in args.stop_quantity else "max"
+
+        callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix),
+                     SeedCallback(args.seed, args.resume_training, args.model, include_cuda),
+                     ModelCheckpoint(save_top_k=args.save_top_k, monitor=args.ckpt_quantity,
+                                     mode=ckpt_method, dirpath=ckpt_path, filename=ckpt_filename,
+                                     save_last=True, save_on_train_epoch_end=True),
+                     EarlyStopping(monitor=args.stop_quantity, min_delta=0.0, patience=args.patience,
+                                   verbose=False, mode=stop_method, strict=True, check_finite=True,
+                                   check_on_train_epoch_end=True),
+                     Timeit()]
+        # if args.resume_training: just SeedCallback, rest will reinit? -> try when test_data was made
+
+    elif args.mode == "test":
+        callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix)]
+
+    else:
+        callbacks = [PredictCallback(args.prefix, args.output_dir, args.model, args.datasets)]
+
+    trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device,
+                         max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
+
+    # Initialize model
+    # ----------------------
+    seq_len, bases = get_meta(h5_data[args.mode])
+
+    if args.resume_training or args.mode in ["test", "predict"]:
+        log.info(f"Chosen model checkpoint: {args.model}")
+        hybrid_model = LitHybridNet.load_from_checkpoint(args.model, seq_len=seq_len)
+        log.info(f"Model's dataset(s): {', '.join(args.datasets)}")
+        assert hybrid_model.input_size == bases, \
+            f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
+            f"Please use the same input size."  # rare to impossible, but just in case
+    else:
+        log.info(f"Chosen dataset(s): {', '.join(args.datasets)}")
+        hybrid_model = LitHybridNet(args.model_type, args.cnn_layers, args.filter_size, args.kernel_size,
+                                    args.step, args.up, args.dilation, args.lstm_layers, args.hidden_size,
+                                    args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
+                                    output_size=len(args.datasets), datasets=args.datasets)
+
+    log.info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
+             f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
 
     # Predmoter start
     # --------------------------------
-    if mode == "train":
-        train_loader = get_dataloader(input_dir=input_directory, type_="train", batch_size=batch_size,
-                                      seq_len=seq_len, datasets=datasets)
-        val_loader = get_dataloader(input_dir=input_directory, type_="val", batch_size=batch_size,
-                                    seq_len=seq_len, datasets=datasets)
-        logging.info(f"Training started. Resuming training: {resume_training}.")  # to print callback at some point
-        if resume_training:
+    pin_mem = True if args.device == "gpu" else False
+
+    if args.mode == "train":
+        log.info(f"Loading training data into memory ...")
+        train_loader = DataLoader(PredmoterSequence(h5_data["train"], "train", args.datasets, seq_len),
+                                  batch_size=args.batch_size, shuffle=True, pin_memory=pin_mem, num_workers=0)
+        val_loader = DataLoader(PredmoterSequence(h5_data["val"], "val", args.datasets, seq_len),
+                                batch_size=args.batch_size, shuffle=False, pin_memory=pin_mem, num_workers=0)
+        log.info(f"Training started. Resuming training: {args.resume_training}.")
+        if args.resume_training:
             # ckpt_path=model restores all previous states like callbacks, optimizer state, etc.
-            trainer.fit(model=hybrid_model, ckpt_path=model,
+            trainer.fit(model=hybrid_model, ckpt_path=args.model,
                         train_dataloaders=train_loader, val_dataloaders=val_loader)
         else:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-        logging.info("Training ended.")
+        log.info("Training ended.")
+
+    elif args.mode == "test":
+        # does the test step loop accumulate in RAM?
+        log.info(f"Testing started. Each file will be loaded into memory and tested individually.")
+        for file in h5_data["test"]:
+            # only use available datasets to load the test data, otherwise more RAM will be used
+            avail_datasets = get_available_datasets(file, args.datasets)
+            test_loader = DataLoader(PredmoterSequence([file], "test", avail_datasets, seq_len),
+                                     batch_size=args.test_batch_size, shuffle=False,
+                                     pin_memory=pin_mem, num_workers=0)
+            trainer.test(model=hybrid_model, dataloaders=test_loader, verbose=False)
+            log.info("Testing ended.")
 
     else:
-        type_ = "test" if mode == "validate" else "predict"
-        path = os.path.join(input_directory, type_)
-        files = glob.glob(os.path.join(path, "*.h5"))
-        msg = f"Validation started. Each file in {path} will be validated individually." if mode == "validate" \
-            else f"Predicting started. Predictions will be done individually for each file in {path}."
-        logging.info(msg)
+        outfile = f"{file_stem(args.filepath)}_predictions.h5"
+        out = os.path.join(args.output_dir, outfile)
+        if os.path.exists(out):
+            raise OSError(f"the predictions output file {outfile} exists in {args.output_dir},"
+                          f" please move or delete it")
 
-        for file in files:
-            if mode == "validate":
-                # only use available datasets to load the test data, otherwise more RAM will be used
-                avail_datasets = get_available_datasets(file, datasets)
-                if len(avail_datasets) < 1:
-                    logging.info(f"None of the model's datasets ({' '.join(datasets)}) are available "
-                                 f"in the file {file.split('/')[-1]}: skipping...")
-                    continue
-                val_loader = get_dataloader(input_dir=input_directory, type_=type_,
-                                            batch_size=test_batch_size, seq_len=seq_len,
-                                            datasets=avail_datasets, file=file)
-                logging.info("Validating ...")
-                trainer.test(model=hybrid_model, dataloaders=val_loader, verbose=False)
-
-            else:
-                outfile = f"{prefix}{file.split('/')[-1].split('.')[0]}_predictions.h5"
-                out = os.path.join(output_directory, outfile)
-                if add_additional is not None:
-                    assert os.path.exists(out),\
-                        f"the predictions output file {outfile} doesn't exist in {output_directory}, " \
-                        f"additional predictions can't be added"
-                    check_alternative_prediction(out, add_additional)
-
-                else:
-                    assert not os.path.exists(out), \
-                        f"the predictions output file {outfile} exists in {output_directory} and add-additional " \
-                        f"is None; change the output directory, move the h5 file or define add-additional"
-
-                predict_loader = get_dataloader(input_dir=input_directory, type_=type_,
-                                                batch_size=predict_batch_size, seq_len=seq_len,
-                                                datasets=datasets, file=file)
-                logging.info("Predicting ...")
-                trainer.predict(model=hybrid_model, dataloaders=predict_loader)
-
-        msg = "Validation ended." if mode == "validate" else "Predicting ended."
-        logging.info(msg)
+        log.info(f"Loading predict data into memory ...")
+        predict_loader = DataLoader(PredmoterSequence(h5_data["predict"], "predict", None, None),
+                                    batch_size=args.predict_batch_size, shuffle=False,
+                                    pin_memory=pin_mem, num_workers=0)
+        log.info("Predicting started.")
+        trainer.predict(model=hybrid_model, dataloaders=predict_loader)
+        logging.info("Predicting ended.")
 
     logging.info("Predmoter finished.\n")
 
 
-# def main():
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="Predmoter", description="Predict promoter regions in the DNA.",
-                                     add_help=False, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser = LitHybridNet.add_model_specific_args(parser)  # add model specific args
-    model_args = parser.parse_known_args()
-    parser.add_argument("-h", "--help", action="help", help="show this help message and exit")  # not included in args
-    parser.add_argument("--version", action="version", version="%(prog)s 1.1")  # not included in args
-    parser.add_argument("-i", "--input-directory", type=str, default=".",
-                        help="containing one train and val directory for training "
-                             "and/or a test directory for predicting (directories must contain h5 files)")
-    parser.add_argument("-o", "--output-directory", type=str, default=".",
-                        help="receiving log-files and pt-files (predictions); already contains or creates empty "
-                             "subdirectory named checkpoints to save model checkpoints to")
-    parser.add_argument("-m", "--mode", type=str, default=None, required=True,
-                        help="valid modes: train, validate or predict")
-    parser.add_argument("--prefix", type=str, default=None,
-                        help="prefix for the metric and main program log files as well as prediction "
-                             "files and the checkpoint directory")
-    parser.add_argument("--resume-training", action="store_true",
-                        help="only add argument if you want to resume training")
-    parser.add_argument("--model", type=str, default="last.ckpt",
-                        help="model checkpoint file used for predictions or resuming training (if not in "
-                             "checkpoint directory, provide full path")
-    parser.add_argument("--datasets", type=str, nargs="+", dest="datasets", default=["atacseq", "h3k4me3"],
-                        help="the dataset(s) the network will train on; if you resume the training, validate or "
-                             "predict the same dataset as before")
-    parser.add_argument("--save-top-k", type=int, default=-1, help="saves the top k (e.g. 3) models;"
-                                                                   " -1 means every model gets saved")
-    parser.add_argument("--seed", type=int, default=None, help="if not provided: will be chosen randomly")
-    parser.add_argument("--checkpoint-path", type=str, default=None,
-                        help="only specify, if other path than <output_directory>/checkpoints or "
-                             "<output_directory>/<prefix>_checkpoints is preferred")
-    parser.add_argument("--ckpt_quantity", type=str, default="avg_val_accuracy",
-                        help="quantity to monitor for checkpoints; loss: poisson negative log "
-                             "likelihood, accuracy: Pearson's r (valid: avg_train_loss, avg_train_accuracy, "
-                             "avg_val_loss, avg_val_accuracy)")
-    parser.add_argument("--stop_quantity", type=str, default="avg_train_loss",
-                        help="quantity to monitor for early stopping; loss: poisson negative log "
-                             "likelihood, accuracy: Pearson's r (valid: avg_train_loss, avg_train_accuracy, "
-                             "avg_val_loss, avg_val_accuracy)")
-    parser.add_argument("--patience", type=int, default=3,
-                        help="allowed epochs without the quantity improving before stopping training")
-    parser.add_argument("-b", "--batch-size", type=int, default=120,
-                        help="batch size for training and validation data during train mode")
-    parser.add_argument("--test-batch-size", type=int, default=120,
-                        help="batch size for test data during validate mode")
-    group = parser.add_argument_group("Predict_arguments")
-    group.add_argument("--predict-batch-size", type=int, default=120,
-                       help="batch size for prediction data during predict mode")
-    group.add_argument("--add-additional", type=str, default=None,
-                       help="adds predictions to an already existing predictions "
-                            "h5-file (output_path/<prefix>_<input_filename>_predictions.h5) "
-                            "under alternative/<add-additional>_prediction")
-    group = parser.add_argument_group("Trainer_arguments")
-    group.add_argument("--device", type=str, default="gpu", help="device to train on")
-    group.add_argument("--num-devices", type=int, default=1, help="number of devices to train on (default recommended)")
-    group.add_argument("-e", "--epochs", type=int, default=35, help="number of training runs")
-
-    args = parser.parse_args()
-
-    # model args and other args into separate dictionaries
-    dict_model_args = vars(model_args[0])
-    dict_args = vars(args)
-
-    for key in dict_model_args:
-        dict_args.pop(key)
-
-    # run main program
-    main(model_arguments=dict_model_args, **dict_args)
+    main()
