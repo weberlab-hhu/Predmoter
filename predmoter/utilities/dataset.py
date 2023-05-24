@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 
 from predmoter.utilities.utils import log_table, file_stem
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("PredmoterLogger")
 
 
 class PredmoterSequence(Dataset):
@@ -29,7 +29,6 @@ class PredmoterSequence(Dataset):
         self.create_dataset()
 
     def __getitem__(self, idx):
-        log.info("getitem")  # check when getitem is called
         if self.type_ == "predict":
             return torch.from_numpy(self.X[idx]).float()
         return torch.from_numpy(self.X[idx]).float(), \
@@ -68,6 +67,7 @@ class PredmoterSequence(Dataset):
             else:
                 key_count = 0
             if h5df["data/X"].shape[1] != self.seq_len:
+                # in case of train/val/test data, just one predict file allowed
                 raise ValueError(f"all {self.type_} input files need to have the same sequence "
                                  f"length, here: {self.seq_len}")
             n, mem_size, chunks = 1000, 0, 0
@@ -82,7 +82,7 @@ class PredmoterSequence(Dataset):
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=self.y_dtype)
-                            y = np.around(np.mean(y, axis=2), 4)  # avg of replicates, round to 4
+                            y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 4
                             y = y[mask]
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
@@ -90,7 +90,7 @@ class PredmoterSequence(Dataset):
                     self.Y += self._encode_one(np.concatenate(Y, axis=2))
                     mem_size += sum([sys.getsizeof(y) for y in Y])
                 mem_size += sys.getsizeof(X)  # works?
-                self.X += self._unbind(X)
+                self.X += self._unbind(X, (X.shape[1], X.shape[2]))
                 chunks += len(X)
             self.chunks.append(chunks)
             self.total_mem_size.append(mem_size)
@@ -108,7 +108,7 @@ class PredmoterSequence(Dataset):
                             round((time.time() - main_start) / 60, ndigits=2)],
                       spacing=space, table_end=True)
         else:
-            logging.info("\n", extra={"simple": True})
+            log.info("\n", extra={"simple": True})
 
     def _encode_one(self, array):
         """Compress array in RAM.
@@ -126,7 +126,8 @@ class PredmoterSequence(Dataset):
         array = np.array(array)  # without this line the array is not writeable
         return torch.from_numpy(array).float()
 
-    def _unbind(self, array):
+    @staticmethod
+    def _unbind(array, shape):
         """Split array into list of arrays. Reshape converts resulting array shapes from
         (1, seq_len, num_dsets) to (seg_len, num_dsets)."""
-        return [np.reshape(arr, (self.seq_len, len(self.dsets))) for arr in np.split(array, len(array), axis=0)]
+        return [np.reshape(arr, shape) for arr in np.split(array, len(array), axis=0)]

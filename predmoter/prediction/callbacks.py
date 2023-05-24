@@ -8,10 +8,9 @@ import h5py
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch import seed_everything
 
-from predmoter.utilities.utils import log_table
-#  Please use `lightning_lite.utilities.seed.seed_everything` for Pytorch Lightning v2.0.0 and upwards instead.
+from predmoter.utilities.utils import log_table, file_stem
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("PredmoterLogger")
 
 
 class MetricCallback(Callback):
@@ -33,7 +32,7 @@ class MetricCallback(Callback):
         metrics = trainer.callback_metrics
         # test_dataloaders[0] --> just one test dataloader is available
         # split() removes the filepath
-        input_filename = trainer.test_dataloaders[0].dataset.h5_files[0].split("/")[-1]
+        input_filename = file_stem(trainer.test_dataloaders.dataset.h5_files[0])
         msg = f"{input_filename} " + " ".join([str(m.item()) for m in list(metrics.values())])
         if not os.path.exists(self.file):  # if the file is already there the header is not needed
             msg = " ".join(["file"] + list(metrics.keys())) + "\n" + msg
@@ -71,7 +70,6 @@ class Timeit(Callback):
 # will num_workers work?? -> test
 class SeedCallback(Callback):
     def __init__(self, seed: int, resume: bool, model_path, include_cuda: bool):
-        # self.device? -> warning please don't change devices resume training
         self.resume = resume
         self.include_cuda = include_cuda
         if not self.resume:
@@ -79,28 +77,33 @@ class SeedCallback(Callback):
             self.state = self.collect_seed_state(self.include_cuda)
         else:
             # load model checkpoint callback
-            seed_callback = torch.load(model_path)["callbacks"]["SeedCallback"]
+            seed_callback_dict = torch.load(model_path)["callbacks"]["SeedCallback"]
 
-            # retrieve state key and state dict from model checkpoint
-            self.seed, self.state = list(seed_callback.items())[0]
+            # retrieve seed and state dict from model checkpoint
+            self.seed = seed_callback_dict["seed"]
+            self.state = seed_callback_dict["rng_states"]
             log.info(f"The seed provided by the model is: {self.seed}.")
+            if "torch.cuda" in self.state.keys() and not include_cuda:
+                log.warning("You are resuming training of a GPU trained model on the CPU. "
+                            "This is unintended. This training will not be reproducible.")
+            if "torch.cuda" not in self.state.keys() and include_cuda:
+                log.warning("You are resuming training of a CPU trained model on the GPU. "
+                            "This is unintended. This training will not be reproducible.")
 
-    @property
-    def state_key(self) -> str:
-        return f"{self.seed}"
-
-    def on_fit_start(self, trainer, pl_module):
+    def on_train_start(self, trainer, pl_module):
         if self.resume:
-            self.set_seed_state(self.state)  # does this need to happen before the trainer is initialized?
+            self.set_seed_state(self.state)
+            # needs to be here as sanity check beforehand changes the torch rng state
 
     def on_train_epoch_end(self, trainer, pl_module):
         self.state.update(self.collect_seed_state(self.include_cuda))
 
     def load_state_dict(self, state_dict):
-        self.state.update(state_dict)
+        self.seed = state_dict["seed"]
+        self.state.update(state_dict["rng_states"])
 
     def state_dict(self):
-        return self.state.copy()
+        return {"seed": self.seed, "rng_states": self.state.copy()}
 
     @staticmethod
     def set_seed(seed):
@@ -143,13 +146,11 @@ class SeedCallback(Callback):
 
 
 class PredictCallback(Callback):
-    def __init__(self, prefix, output_dir, model, datasets):
-        self.prefix = prefix
-        self.output_dir = output_dir
+    def __init__(self, output_file, input_file, model, datasets):
+        self.output_file = output_file
+        self.input_file = input_file
         self.model = model
         self.datasets = datasets
-        self.input_file = None
-        self.output_file = None
         self.length = None
         self.pred_key = None
         self.start = 0
@@ -159,16 +160,11 @@ class PredictCallback(Callback):
     def on_predict_start(self, trainer, pl_module):
         # get input file meta data
         # -------------------------
-        # predict_dataloaders[0] --> just one predict dataloader is available
-        self.input_file = trainer.predict_dataloaders[0].dataset.h5_files[0]
-        # split() removes the filepath and file extension
-        input_name = self.input_file.split("/")[-1].split(".")[0]
         in_h5df = h5py.File(self.input_file, "r")
         self.length = in_h5df["data/X"].shape[0]
         chunk_len = in_h5df["data/X"].shape[1]
 
         # define the h5 output file
-        self.output_file = os.path.join(self.output_dir, f"{self.prefix}{input_name}_predictions.h5")
         h5df = h5py.File(self.output_file, "w")
 
         # data group setup

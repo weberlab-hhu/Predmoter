@@ -3,7 +3,6 @@ import os
 import warnings
 
 from predmoter.core.constants import PREDMOTER_VERSION
-from predmoter.prediction.HybridModel import LitHybridNet
 
 
 class BaseParser:
@@ -34,9 +33,9 @@ class BaseParser:
             raise argparse.ArgumentTypeError("boolean value expected")
 
 
-class PredmoterParser(BaseParser(prog="Predmoter",
-                                 description="predict NGS data associated with regulatory DNA regions")):
+class PredmoterParser(BaseParser):
     def __init__(self):
+        super().__init__(prog="Predmoter", description="predict NGS data associated with regulatory DNA regions")
         self.parser.add_argument("--version", action="version", version=f"%(prog)s {PREDMOTER_VERSION}")
         self.parser.add_argument("-m", "--mode", type=str, default=None, required=True,
                                        help="valid modes: train, test or predict")
@@ -88,7 +87,7 @@ class PredmoterParser(BaseParser(prog="Predmoter",
                                       help="add a batch normalization layer after each convolutional layer")
         self.model_group.add_argument("--dropout", type=float, default=0.,
                                       help="adds a dropout layer with the specified dropout value after each "
-                                           "LSTM layer except the last; if it is 0. no dropout layers are added;"
+                                           "LSTM layer except the last; if it is 0. no dropout layers are added; "
                                            "if there is just one LSTM layer specifying dropout will do nothing")
         self.model_group.add_argument("-lr", "--learning-rate", type=float, default=0.001,
                                       help="(default: %(default)f)")
@@ -104,15 +103,15 @@ class PredmoterParser(BaseParser(prog="Predmoter",
                                         help="saves the top k (e.g. 3) models; -1 means every model gets saved")
         self.trainer_group.add_argument("--stop_quantity", type=str, default="avg_train_loss",
                                         help="quantity to monitor for early stopping; loss: poisson negative log "
-                                             "likelihood, accuracy: Pearson's r (valid: avg_train_loss, "
+                                             "likelihood, accuracy: Pearson's R (valid: avg_train_loss, "
                                              "avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
         self.trainer_group.add_argument("--patience", type=int, default=5,
                                         help="allowed epochs without the quantity improving before stopping training")
         self.trainer_group.add_argument("-b", "--batch-size", type=int, default=120,
                                         help="batch size for training and validation sets")
-        self.trainer_group.add_argument("--test-batch-size", type=int, default=120,
+        self.trainer_group.add_argument("-tb", "--test-batch-size", type=int, default=120,
                                         help="batch size for test set")
-        self.trainer_group.add_argument("--predict-batch-size", type=int, default=120,
+        self.trainer_group.add_argument("-pb", "--predict-batch-size", type=int, default=120,
                                         help="batch size for prediction set")
 
         # specify which strand, will inherit from bw parser ???
@@ -120,7 +119,7 @@ class PredmoterParser(BaseParser(prog="Predmoter",
         self.trainer_group.add_argument("--num-devices", type=int, default=1,
                                         help="number of devices to train on (default recommended)")
         # block: no more than one for now, think on ddp
-        self.trainer_group.add_argument("-e", "--epochs", type=int, default=35, help="number of training runs")
+        self.trainer_group.add_argument("-e", "--epochs", type=int, default=5, help="number of training runs")
 
     def check_args(self, args):
         # Mode
@@ -140,16 +139,16 @@ class PredmoterParser(BaseParser(prog="Predmoter",
 
         if args.mode == "predict":
             if args.filepath is None:
-                raise OSError("if mode is predict the argument --filepath is required to find the input file")
+                raise OSError("if mode is predict the argument -f/--filepath is required to find the input file")
             if args.filepath is not None:
                 if not os.path.exists(args.filepath):
-                    raise FileNotFoundError(f"path {args.filepath} doesn't exist")
+                    raise FileNotFoundError(f"file {args.filepath} doesn't exist")
                 if not os.path.isfile(args.filepath):
                     raise OSError(f"the chosen file {args.filepath} is not a file")
 
         if args.output_format is not None:
-            assert args.output_format in ["bigwig", "bedgraph"], \
-                f"valid additional output formats are bigwig and bedgraph not {args.output_format}"
+            assert args.output_format in ["bigwig", "bedgraph", "bw", "bg"], \
+                f"valid additional output formats are bigwig (bw) and bedgraph (bg) not {args.output_format}"
 
         args.prefix = f"{args.prefix}_" if args.prefix is not None else ""
 
@@ -157,7 +156,7 @@ class PredmoterParser(BaseParser(prog="Predmoter",
         # --------------
         if args.resume_training and args.mode != "train":
             args.resume_training = False
-            warnings.warn("can only resume training if mode is train, resume_training will be set to False")
+            warnings.warn("can only resume training if mode is train, resume-training will be set to False")
 
         if args.mode == "train" and not args.resume_training and args.model is not None:
             args.model = None
@@ -186,51 +185,34 @@ class PredmoterParser(BaseParser(prog="Predmoter",
         assert args.model_type in ["cnn", "hybrid", "bi-hybrid"], \
             f"valid model types are cnn, hybrid and bi-hybrid not {args.model_type}"
 
-        for key, value in {"cnn-layers": args.cnn_layers, "filter-size": args.filter_size,
-                           "kernel-size": args.kernel_size, "step": args.step, "up": args.up,
-                           "dilation": args.dilation, "lstm-layers": args.lstm_layers,
-                           "hidden-size": args.hidden_size}.items():
-            if value <= 0:
-                raise ValueError(f"{key} needs to be > 0, not {value}")
-
-        for key, value in {"dropout": args.dropout, "learning-rate": args.learning_rate}:
-            if value > 1 or value < 0:
-                raise ValueError(f"{key} needs to be > 0 and < 1, not {value}")
-
         # Trainer checks
         # ---------------
         for quantity in [args.ckpt_quantity, args.stop_quantity]:
             assert quantity in ["avg_train_loss", "avg_train_accuracy", "avg_val_loss", "avg_val_accuracy"], \
                 f"can not monitor invalid quantity: {quantity}"
 
-        if args.save_top_k < -1:
-            raise ValueError(f"save-top-k needs to be a positive integer, 0 or -1, not {args.save_top_k}")
-
-        for key, value in {"patience": args.patience, "batch-size": args.batch_size,
-                           "test-batch-size": args.test_batch_size,
-                           "predict-batch-size": args.predict_batch_size}.items():
-            if value <= 0:
-                raise ValueError(f"{key} needs to be > 0, not {value}")
-
         assert args.device in ["cpu", "gpu"], \
             "valid devices are cpu or gpu, Predmoter is not configured to work on other devices"
 
 
-class BigwigParser(BaseParser(prog="H5toBigwig", description="write predictions in h5 format to a bigwig file")):
+class BigwigParser(BaseParser):
     def __init__(self):
+        super().__init__(prog="H5toBigwig", description="write predictions in h5 format to a bigwig file")
         self.io_group = self.parser.add_argument_group("Data input/output parameters")
         # module load zlib/1.2.11, libcurl/7.52.1
         pass
 
 
-class BedgraphParser(BaseParser(prog="H5toBedgraph", description="write predictions in h5 format to a bedgraph file")):
+class BedgraphParser(BaseParser):
     def __init__(self):
+        super().__init__(prog="H5toBedgraph", description="write predictions in h5 format to a bedgraph file")
         self.io_group = self.parser.add_argument_group("Data input/output parameters")
         pass
 
 
-class AddAverageParser(BaseParser(prog="AddAverage",
-                                  description="compute average of NGS dataset and add it to the h5 input file")):
+class AddAverageParser(BaseParser):
     def __init__(self):
+        super().__init__(prog="AddAverage",
+                         description="compute average of NGS dataset and add it to the h5 input file")
         self.io_group = self.parser.add_argument_group("Data input/output parameters")
         pass

@@ -24,7 +24,7 @@ def main():
     # Logging
     # ----------------------
     logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
-    log = logging.getLogger(__name__)
+    log = logging.getLogger("PredmoterLogger")
     log.info("\n", extra={"simple": True})
     log.info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
 
@@ -45,7 +45,7 @@ def main():
         os.makedirs(ckpt_path, exist_ok=True)
         if not args.resume_training and len(os.listdir(ckpt_path)) > 0:
             log.warning("Starting training for the first time and the checkpoint directory is not empty, "
-                        "if this is intentional you can ignore this message")
+                        "if this is intentional you can ignore this message.")
         ckpt_method = "min" if "loss" in args.ckpt_quantity else "max"
         ckpt_filename = "predmoter_v{" + PREDMOTER_VERSION + "}_{epoch}_{" + args.ckpt_quantity + ":.4f}"
         # f-string would mess up formatting
@@ -64,20 +64,27 @@ def main():
                                    verbose=False, mode=stop_method, strict=True, check_finite=True,
                                    check_on_train_epoch_end=True),
                      Timeit()]
-        # if args.resume_training: just SeedCallback, rest will reinit? -> try when test_data was made
 
     elif args.mode == "test":
         callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix)]
 
     else:
-        callbacks = [PredictCallback(args.prefix, args.output_dir, args.model, args.datasets)]
+        outfile = f"{file_stem(args.filepath)}_predictions.h5"
+        out_filepath = os.path.join(args.output_dir, outfile)
+        if os.path.exists(out_filepath):
+            raise OSError(f"the predictions output file {outfile} exists in {args.output_dir},"
+                          f" please move or delete it")
+        callbacks = [PredictCallback(out_filepath, args.filepath, args.model, args.datasets)]
 
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device,
                          max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
 
     # Initialize model
     # ----------------------
-    seq_len, bases = get_meta(h5_data[args.mode])
+    if isinstance(h5_data[args.mode], list):
+        seq_len, bases = get_meta(h5_data[args.mode][0])
+    else:
+        seq_len, bases = get_meta(h5_data[args.mode])
 
     if args.resume_training or args.mode in ["test", "predict"]:
         log.info(f"Chosen model checkpoint: {args.model}")
@@ -125,24 +132,18 @@ def main():
                                      batch_size=args.test_batch_size, shuffle=False,
                                      pin_memory=pin_mem, num_workers=0)
             trainer.test(model=hybrid_model, dataloaders=test_loader, verbose=False)
-            log.info("Testing ended.")
+        log.info("Testing ended.")
 
     else:
-        outfile = f"{file_stem(args.filepath)}_predictions.h5"
-        out = os.path.join(args.output_dir, outfile)
-        if os.path.exists(out):
-            raise OSError(f"the predictions output file {outfile} exists in {args.output_dir},"
-                          f" please move or delete it")
-
         log.info(f"Loading predict data into memory ...")
-        predict_loader = DataLoader(PredmoterSequence(h5_data["predict"], "predict", None, None),
+        predict_loader = DataLoader(PredmoterSequence([h5_data["predict"]], "predict", None, seq_len),
                                     batch_size=args.predict_batch_size, shuffle=False,
                                     pin_memory=pin_mem, num_workers=0)
         log.info("Predicting started.")
         trainer.predict(model=hybrid_model, dataloaders=predict_loader)
-        logging.info("Predicting ended.")
+        log.info("Predicting ended.")
 
-    logging.info("Predmoter finished.\n")
+    log.info("Predmoter finished.\n")
 
 
 if __name__ == "__main__":
