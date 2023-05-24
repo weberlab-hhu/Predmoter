@@ -1,5 +1,4 @@
 import os
-import argparse
 import logging
 import sys
 import glob
@@ -7,7 +6,7 @@ import numpy as np
 import h5py
 from collections import Counter
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("PredmoterLogger")
 
 
 class CustomFormatter(logging.Formatter):
@@ -24,8 +23,9 @@ def get_log_dict(output_dir, prefix):
     return {
         "version": 1,
         "formatters": {
-            "()": lambda: CustomFormatter('%(asctime)s, %(levelname)s: %(message)s',
-                                          datefmt='%d.%m.%Y %H:%M:%S'),
+            "custom":
+                {"()": lambda: CustomFormatter('%(asctime)s, %(levelname)s: %(message)s',
+                                               datefmt='%d.%m.%Y %H:%M:%S')}
         },
         "handlers": {
             "console": {"class": "logging.StreamHandler",
@@ -38,17 +38,18 @@ def get_log_dict(output_dir, prefix):
                      "filename": f"{output_dir}/{prefix}predmoter.log", "mode": "a"}
         },
         "loggers": {
-            __name__: {"level": "INFO",
-                       "handlers": ["console", "file"],
-                       "propagate": True},
+            "PredmoterLogger": {"level": "INFO",
+                                "handlers": ["console", "file"],
+                                "propagate": True},
         }
     }
 
 
 def log_table(logger, contents, spacing, header=False, table_end=False):
     """Log table rows incrementally to the log file"""
+    contents = list(map(str, contents))  # converts to string
     contents = [f"{i: <{spacing}}" if len(i) <= spacing else f"{i[:spacing - 2]}" + ".." for i in contents]
-    # every string will have the length of spacing, also converts to string
+    # every string will have the length of spacing
     msg = "|".join(contents)
 
     if header:
@@ -116,25 +117,25 @@ def get_h5_data(input_dir, mode, dsets):
                                      f"please only choose datasets that are available in your {type_} set")
 
         if len(skip_files) >= 1:
-            log.warning(f"The h5 files {', '.join(skip_files)} don't contain the chosen/model's "
-                        f"datasets {', '.join(dsets)} and will be skipped.")
+            log.info(f"The h5 file(s) {', '.join(skip_files)} don't contain the chosen/model's "
+                     f"datasets {', '.join(dsets)} and will be skipped.")
         # add files to data if no errors occurred
-        h5_data[type_] = h5_files.sort()  # sort alphabetically -> keep file order for reproducibility
+        h5_files.sort()  # sort alphabetically -> keep file order for reproducibility
+        h5_data[type_] = h5_files
     return h5_data
 
 
-def get_meta(h5_files):
+def get_meta(h5_file):
     """Get metadata about the sequence length and the input size (bases).
 
     It is possible to use a different sequence length for testing or predicting than training.
     The bases are checked to make sure that the model is compatible/define the model's input size.
     """
-    for h5_file in h5_files:
-        h5df = h5py.File(h5_file, mode="r")
-        X = np.array(h5df["data/X"][:1], dtype=np.int8)
-        meta = X.shape[1:]
-        assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
-        return meta
+    h5df = h5py.File(h5_file, mode="r")
+    X = np.array(h5df["data/X"][:1], dtype=np.int8)
+    meta = X.shape[1:]
+    assert len(meta) == 2, f"expected all arrays to have the shape (seq_len, bases) found {meta}"
+    return meta
 
 
 def file_stem(path):

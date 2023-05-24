@@ -2,7 +2,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 from predmoter.core.constants import EPS
 
@@ -177,7 +177,7 @@ class LitHybridNet(pl.LightningModule):
 
         # retrieve the dataset's dataset(s) from the one test dataloader
         # helpful if e.g. the model is trained on 3 datasets, but the test set has just 1
-        avail_datasets = self.trainer.test_dataloaders[0].dataset.dsets
+        avail_datasets = self.trainer.test_dataloaders.dataset.dsets
 
         # mask padding/chromosome ends
         # ------------------------------
