@@ -67,7 +67,7 @@ class Timeit(Callback):
         log_table(log, [self.last_epoch, f"{sum(self.durations)/60**2:.2f} h"], spacing=16, table_end=True)
 
 
-# will num_workers work?? -> test
+# will num_workers work?? -> test, try shorter set_seed, leave random seed to lightning
 class SeedCallback(Callback):
     def __init__(self, seed: int, resume: bool, model_path, include_cuda: bool):
         self.resume = resume
@@ -85,10 +85,10 @@ class SeedCallback(Callback):
             log.info(f"The seed provided by the model is: {self.seed}.")
             if "torch.cuda" in self.state.keys() and not include_cuda:
                 log.warning("You are resuming training of a GPU trained model on the CPU. "
-                            "This is unintended. This training will not be reproducible.")
+                            "This is unintended. This training might not be reproducible.")
             if "torch.cuda" not in self.state.keys() and include_cuda:
                 log.warning("You are resuming training of a CPU trained model on the GPU. "
-                            "This is unintended. This training will not be reproducible.")
+                            "This is unintended. This training might not be reproducible.")
 
     def on_train_start(self, trainer, pl_module):
         if self.resume:

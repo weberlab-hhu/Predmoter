@@ -13,6 +13,7 @@ from predmoter.prediction.callbacks import SeedCallback, MetricCallback, Timeit,
 from predmoter.utilities.utils import get_log_dict, get_h5_data, get_meta, get_available_datasets, file_stem
 from predmoter.prediction.HybridModel import LitHybridNet
 from predmoter.utilities.dataset import PredmoterSequence
+from predmoter.utilities.converter import Converter
 
 
 def main():
@@ -89,12 +90,12 @@ def main():
     if args.resume_training or args.mode in ["test", "predict"]:
         log.info(f"Chosen model checkpoint: {args.model}")
         hybrid_model = LitHybridNet.load_from_checkpoint(args.model, seq_len=seq_len)
-        log.info(f"Model's dataset(s): {', '.join(args.datasets)}")
+        log.info(f"Model's dataset(s): {', '.join(args.datasets)}.")
         assert hybrid_model.input_size == bases, \
             f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
             f"Please use the same input size."  # rare to impossible, but just in case
     else:
-        log.info(f"Chosen dataset(s): {', '.join(args.datasets)}")
+        log.info(f"Chosen dataset(s): {', '.join(args.datasets)}.")
         hybrid_model = LitHybridNet(args.model_type, args.cnn_layers, args.filter_size, args.kernel_size,
                                     args.step, args.up, args.dilation, args.lstm_layers, args.hidden_size,
                                     args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
@@ -111,6 +112,7 @@ def main():
         log.info(f"Loading training data into memory ...")
         train_loader = DataLoader(PredmoterSequence(h5_data["train"], "train", args.datasets, seq_len),
                                   batch_size=args.batch_size, shuffle=True, pin_memory=pin_mem, num_workers=0)
+        log.info(f"Loading validation data into memory ...")
         val_loader = DataLoader(PredmoterSequence(h5_data["val"], "val", args.datasets, seq_len),
                                 batch_size=args.batch_size, shuffle=False, pin_memory=pin_mem, num_workers=0)
         log.info(f"Training started. Resuming training: {args.resume_training}.")
@@ -142,6 +144,12 @@ def main():
         log.info("Predicting started.")
         trainer.predict(model=hybrid_model, dataloaders=predict_loader)
         log.info("Predicting ended.")
+
+        log.info("Converting prediction h5 file to bigwig files.")
+        if args.output_format is not None:
+            Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
+                      args.output_dir, "bigwig", basename=file_stem(args.filepath), strand=None)
+        log.info("Conversion ended.")
 
     log.info("Predmoter finished.\n")
 

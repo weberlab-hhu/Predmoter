@@ -1,3 +1,3 @@
-PREDMOTER_VERSION = "0.3.0"
+PREDMOTER_VERSION = "0.3.1"
 EPS = 1e-8
-# data/X, evaluation, seed limit?, meta?
+MAX_VALUES_IN_RAM = 21_384_000
