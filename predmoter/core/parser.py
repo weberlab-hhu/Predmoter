@@ -51,7 +51,10 @@ class PredmoterParser(BaseParser):
                                    help="input file to predict on, either h5 or fasta file")
         self.io_group.add_argument("-of", "--output-format", type=str, default=None,
                                    help="output format for predictions, if unspecified will output no additional "
-                                        "files besides the h5 file (valid: bigwig, bedgraph)")
+                                        "files besides the h5 file (valid: bigwig (bw), bedgraph (bg)); "
+                                        "the file naming convention is: <basename_of_input_file>_dataset_"
+                                        "avg_strand.bw/bg.gz, if just + or - strand is preferred, convert the "
+                                        "h5 file later on using convert2coverage.py")
         self.io_group.add_argument("--prefix", type=str, default=None,
                                    help="prefix for log files and the checkpoint directory")
 
@@ -140,10 +143,10 @@ class PredmoterParser(BaseParser):
         if args.mode == "predict":
             if args.filepath is None:
                 raise OSError("if mode is predict the argument -f/--filepath is required to find the input file")
-            if args.filepath is not None:
+            else:
                 if not os.path.exists(args.filepath):
                     raise FileNotFoundError(f"file {args.filepath} doesn't exist")
-                if not os.path.isfile(args.filepath):
+                if not os.path.isfile(args.filepath):  # remove?, check predict file differently
                     raise OSError(f"the chosen file {args.filepath} is not a file")
 
         if args.output_format is not None:
@@ -195,19 +198,39 @@ class PredmoterParser(BaseParser):
             "valid devices are cpu or gpu, Predmoter is not configured to work on other devices"
 
 
-class BigwigParser(BaseParser):
+class ConverterParser(BaseParser):
     def __init__(self):
-        super().__init__(prog="H5toBigwig", description="write predictions in h5 format to a bigwig file")
-        self.io_group = self.parser.add_argument_group("Data input/output parameters")
+        super().__init__(prog="H5toBigwig", description="write predictions in h5 format to a bigwig or bedgraph file")
         # module load zlib/1.2.11, libcurl/7.52.1
-        pass
+        self.parser.add_argument("-i", "--input-file", type=str, default=None, required=True,
+                                 help="input h5 predictions file (Predmoter output)")
+        self.parser.add_argument("-o", "--output-dir", type=str, default=".",
+                                 help="output directory for all converted files")
+        self.parser.add_argument("-of", "--output-format", type=str, default="bigwig",
+                                 help="output format for predictions (valid: bigwig (bw), bedgraph (bg))")
+        self.parser.add_argument("--basename", type=str, default=None, required=True,
+                                 help="basename of the output files, naming convention: "
+                                      "basename_dataset_strand.bw/bg.gz")
+        self.parser.add_argument("--strand", type=str, default=None,
+                                 help="None means the average of both strands is used, else + or - can be selected")
 
+    def check_args(self, args):
+        if not os.path.exists(args.input_file):
+            raise FileNotFoundError(f"file {args.input_file} doesn't exist")
 
-class BedgraphParser(BaseParser):
-    def __init__(self):
-        super().__init__(prog="H5toBedgraph", description="write predictions in h5 format to a bedgraph file")
-        self.io_group = self.parser.add_argument_group("Data input/output parameters")
-        pass
+        if not os.path.isfile(args.input_file):  # remove??, check file somewhere
+            raise OSError(f"the chosen file {args.input_file} is not a file")
+
+        if not os.path.exists(args.output_dir):
+            raise OSError(f"path {args.output_dir} doesn't exist")
+
+        if not os.path.isdir(args.output_dir):
+            raise NotADirectoryError(f"path {args.output_dir} is not a directory")
+
+        assert args.output_format in ["bigwig", "bedgraph", "bw", "bg"], \
+            f"valid output formats are bigwig (bw) and bedgraph (bg) not {args.output_format}"
+
+        assert args.strand in ["+", "-", None], f"valid strand is either +, - or None not {args.strand}"
 
 
 class AddAverageParser(BaseParser):

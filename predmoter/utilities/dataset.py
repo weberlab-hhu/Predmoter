@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from predmoter.core.constants import MAX_VALUES_IN_RAM
 from predmoter.utilities.utils import log_table, file_stem
 
 log = logging.getLogger("PredmoterLogger")
@@ -43,10 +44,10 @@ class PredmoterSequence(Dataset):
         The data is read in per h5 file. The chunks of the file are then read in 1000 at a time,
         so that the impact on RAM will be smaller when the allocated data is not/only partially
         freed later. If a specific NGS dataset does not exist in a h5 file an array of would
-        be size is filled with -3 to ensure that the datasets don't get shifted/can be concatenated.
-        If just one dataset is chosen, then the file is skipped entirely (see utils: get_h5_data).
-        For predictions just the DNA data (X) is read in. The experimental data (Y) is averaged
-        (average of bam file tracks/replicates).
+        be size is filled with -3 to ensure that the datasets don't get shifted/that they can be
+        concatenated. If just one dataset is chosen, then the file is skipped entirely
+        (see utils: get_h5_data). For predictions just the DNA data (X) is read in. The experimental
+        data (Y) is averaged (average of bam file tracks/replicates).
         """
 
         # Start logging
@@ -70,8 +71,9 @@ class PredmoterSequence(Dataset):
                 # in case of train/val/test data, just one predict file allowed
                 raise ValueError(f"all {self.type_} input files need to have the same sequence "
                                  f"length, here: {self.seq_len}")
-            n, mem_size, chunks = 1000, 0, 0
-            for i in range(0, len(h5df["data/X"]), n):  # for saving memory (RAM)
+            n = MAX_VALUES_IN_RAM // self.seq_len  # dynamic step for different sequence lengths
+            mem_size, chunks = 0, 0
+            for i in range(0, len(h5df["data/X"]), n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 if self.type_ != "predict":
                     # excluding large assembly gaps
@@ -86,10 +88,10 @@ class PredmoterSequence(Dataset):
                             y = y[mask]
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
-                            Y.append(np.full((X.shape[0], X.shape[1], 1), -3., dtype=self.y_dtype))
+                            Y.append(np.full((X.shape[0], X.shape[1], 1), -3, dtype=self.y_dtype))
                     self.Y += self._encode_one(np.concatenate(Y, axis=2))
                     mem_size += sum([sys.getsizeof(y) for y in Y])
-                mem_size += sys.getsizeof(X)  # works?
+                mem_size += sys.getsizeof(X)
                 self.X += self._unbind(X, (X.shape[1], X.shape[2]))
                 chunks += len(X)
             self.chunks.append(chunks)
