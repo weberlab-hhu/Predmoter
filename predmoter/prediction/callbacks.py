@@ -47,24 +47,26 @@ class Timeit(Callback):
     def __init__(self):
         super().__init__()
         self.start = 0
-        self.durations = []
+        self.duration = 0
         self.last_epoch = 0
 
     def on_train_start(self, trainer, pl_module):
-        log_table(log, ["Epoch", "Duration (min)"], spacing=16, header=True)
+        log_table(log, ["Epoch", "Total duration (min)", "Duration per epoch (min)"], spacing=24, header=True)
 
     def on_train_epoch_start(self, trainer, pl_module):
         self.start = time.time()
 
     def on_train_epoch_end(self, trainer, pl_module):
         self.last_epoch += 1
-        duration = time.time() - self.start
-        self.durations.append(duration)
-        # just log every 5/10 epochs??, how much time total and on avg
-        log_table(log, [trainer.current_epoch, round((duration/60), ndigits=2)], spacing=16)
+        self.duration += time.time() - self.start
+        total_duration = round((self.duration/60), ndigits=2)
+        log_table(log, [trainer.current_epoch, total_duration,
+                        round((total_duration/self.last_epoch), ndigits=2)], spacing=24)
 
     def on_train_end(self, trainer, pl_module):
-        log_table(log, [self.last_epoch, f"{sum(self.durations)/60**2:.2f} h"], spacing=16, table_end=True)
+        total_duration = round((self.duration / 60), ndigits=2)
+        log_table(log, [self.last_epoch, total_duration,
+                        round((total_duration/self.last_epoch), ndigits=2)], spacing=24, table_end=True)
 
 
 # will num_workers work?? -> test, try shorter set_seed, leave random seed to lightning

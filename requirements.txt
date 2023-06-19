@@ -3,6 +3,6 @@ h5py>=3.6.0
 numcodecs
 torch>=1.13.0
 lightning>=2.0.0
-git+https://github.com/weberlab-hhu/Helixer
+helixer @ git+https://github.com/weberlab-hhu/Helixer@dev
 pyBigWig>=0.3.0
 

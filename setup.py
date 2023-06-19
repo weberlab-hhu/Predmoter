@@ -1,7 +1,5 @@
 from setuptools import setup
-from predmoter.core.constants import PREDMOTER_VERSION  # works without install???
-
-# exec(open("predmoter/core/constants.py").read())  # works
+from predmoter.core.constants import PREDMOTER_VERSION
 
 setup(
    name="predmoter",
@@ -10,6 +8,8 @@ setup(
    url="https://github.com/weberlab-hhu/Predmoter",
    description="Deep Learning model predicting ATAC- and ChIP-seq data",
    packages=["predmoter", "predmoter.core", "predmoter.prediction", "predmoter.utilities"],
-   scripts=["Predmoter.py"]
+   package_data={"predmoter": ["testdata/*.h5", "testdata/*.fa"]},
+   install_requires=["helixer @ https://github.com/weberlab-hhu/Helixer/archive/refs/heads/dev.zip"],
+   dependency_links=["https://github.com/weberlab-hhu/Helixer/archive/refs/heads/dev.zip#egg=helixer"],
+   scripts=["Predmoter.py", "convert2coverage.py"]
 )
-# later: package_data, install_requires (packages/git), dependency_links
