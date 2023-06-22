@@ -201,7 +201,6 @@ class PredmoterParser(BaseParser):
 class ConverterParser(BaseParser):
     def __init__(self):
         super().__init__(prog="H5toBigwig", description="write predictions in h5 format to a bigwig or bedgraph file")
-        # module load zlib/1.2.11, libcurl/7.52.1
         self.parser.add_argument("-i", "--input-file", type=str, default=None, required=True,
                                  help="input h5 predictions file (Predmoter output)")
         self.parser.add_argument("-o", "--output-dir", type=str, default=".",

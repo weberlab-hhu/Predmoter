@@ -56,7 +56,7 @@ class Converter:
 
             chunk           0          1              2              3               4           5
             strand          +          +              +              -               -           -
-            start/end   0/21384    21384/42786    42786/51321    51321/42786    42786/21384    21384/0
+            start/end   0/21384    21384/42768    42768/51321    51321/42768    42768/21384    21384/0
 
         All strands are represented from 5' to 3', so the negative strand is in descending order.
         For each chromosome the length (end) in bp and the indices of the positive and negative
@@ -184,12 +184,12 @@ class Converter:
         Example:
             (the -1 denote the padding)
             positive strand
-                chunks               0                  1                  2
+                chunk                0                  1                  2
                 mini_array    [1, 2, 3, 2, 4]    [8, 9, 2, 2, 8]    [2, 2, 5, -1, -1]
                 start/end           0/5                5/10              10/13
 
             negative strand
-                chunks               3                    4                  5
+                chunk                3                    4                  5
                 mini_array    [4, 2, 2, -1, -1]    [8, 2, 1, 8, 8]    [4, 2, 3, 2, 1]
                 start/end          13/10                10/5                5/0
 

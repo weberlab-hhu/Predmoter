@@ -49,6 +49,7 @@ def calc_pearson_matrix(h5df, key, num, mode):
     for i in range(0, len(h5df["data/X"]), n):  # len(h5df["data/X"])
         array = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
         # array = array[array > 0]  # only non-negatives/no padding filler values are used; needed?
+        # means and medians: right now old stuff/not usable
         if mode == "mean":
             array = (array / np.array(h5df[f"evaluation/{key}_{mode}s"], dtype=np.float32))
         elif mode == "median":
@@ -79,7 +80,9 @@ def main(h5_file, output_dir, keys, mode):
 
     for key in keys:
         if f"{key}_coverage" in h5df["evaluation"].keys():
-            reps = [rep.decode().split('/')[-1].split('.')[0] for rep in h5df[f"{key}_meta/bam_files"][:]]  # replicates
+            # helixer dev branch: meta in evaluation
+            reps = [rep.decode().split('/')[-1].split('.')[0]
+                    for rep in h5df[f"evaluation/{key}_meta/bam_files"][:]]  # replicates
             pearson_matrix = calc_pearson_matrix(h5df, key, len(reps), mode=mode)
             table = string_table(reps, pearson_matrix)
 

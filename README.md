@@ -31,8 +31,8 @@ compared to 1.11 (https://github.com/pytorch/pytorch/issues/80809).
 This is fixed in the later versions.     
    
 Sofware versions:   
-- **CUDA**: 11.2.2
-- **cuDNN**: 8.1.1
+- **CUDA**: 11.7.1
+- **cuDNN**: 8.7.0
 - **Python**: 3.8.3
 - **PyTorch**: 2.0.0
 - **Pytorch Lightning**: 2.0.2
@@ -40,37 +40,16 @@ Sofware versions:
 - **H5py**: 3.7.0
 - **Numcodecs**: 0.10.0
 - **pyBigWig**: 0.3.22 (not usable on Windows)
+- **zlib**: 1.2.11 (for pyBigWig)
+- **libcurl**: 7.52.1 (for pyBigWig)
    
 ### Installation guide
-#### Code
-First download the code from GitHub.
-```bash
-# clone via HTTPS
-git clone https://github.com/weberlab-hhu/Predmoter.git
-
-# allows access via SSH
-git clone git@github.com:weberlab-hhu/Predmoter.git
-
-```
-   
-#### Virtual environment (optional)
-We recommend installing all the python packages in a virtual environment:
-https://docs.python-guide.org/dev/virtualenvs/
-
-For example, create and activate an environment called "env":
-```bash
-python3 -m venv env
-source env/bin/activate
-
-# deactivation
-deactivate
-```
+#### Manual installation
+For the manual installation see
+the [manual installation instructions](docs/manual_install.md).
     
-#### Dependencies of Predmoter
-``` bash
-# from the Helixer directory
-pip install -r requirements.txt
-```
+#### Docker/Singularity
+TBA
     
 ## Usage
 >**NOTE**: Please keep the output files, especially the ``predmoter.log`` file,
@@ -89,6 +68,7 @@ to be used instead.
 
     
 ### Input files
+For more details see the [h5 file documentation](docs/h5_files.md).     
 The data used in this project is stored in h5 files. H5 files (also called HDF5,
 Hierarchical Data Format 5) are designed to store and organize large amounts of
 data. They consist of two major components:   
@@ -99,11 +79,11 @@ data. They consist of two major components:
 The input files are created using Helixer (https://github.com/weberlab-hhu/Helixer):   
 ```bash
 # create genome h5 file
-python3 <path_to_helixer>/HelixerPrep/fasta2h5.py --species <generic_name>_<specific_name> \
+python3 fasta2h5.py --species <generic_name>_<specific_name> \
 --h5-output-path <species>.h5 --fasta-path <path_to_genome>/<species>.fa
 
 # add the NGS (ATAC-/ChIP-seq) coverage
-python3 <path_to_helixer>/HelixerPrep/helixer/evaluation/add_ngs_coverage.py \
+python3 <path_to_Helixer>/helixer/evaluation/add_ngs_coverage.py \
 -s <generic_name>_<specific_name> -d <species>.h5 -b *.bam --dataset-prefix <ngs_prefix> \
 --unstranded --threads 0
 ```
@@ -117,7 +97,7 @@ Input file architecture example (when using Helixer dev branch):
 |     ├── X (encoded DNA sequence)
 |     ├── seqids (chromosome/scaffold names)
 |     ├── species
-|     └── starts_ends
+|     └── start_ends (start and end base per chunk)
 |
 └── evaluation
       ├── <dataset>_meta
@@ -126,7 +106,9 @@ Input file architecture example (when using Helixer dev branch):
       └── <dataset>_spliced_coverage
 ```
     
-An example dataset would be "atacseq". Multiple datasets can be added.   
+An example dataset would be "atacseq". Multiple datasets can be added. Poisson
+distribution is assumed by Predmoter for all datasets, as it is designed for
+ATAC- and ChIP-seq data.    
    
 > **NOTE**: The input data is cut into chunks. The standard sequence length
 > of these chunks is 21384 base pairs. Predmoter accepts other sequence lengths
@@ -178,7 +160,10 @@ and the weights and biases get saved to a model file named:
 checkpoint saved is also copied to ``last.ckpt``. If `` --save-top-k`` is
 -1 (default), models get saved after each epoch. If it is 3 the top three
 models according to the checkpoint metric tracked are saved.   
-   
+     
+> Hint: The prefix test can be confusing because test_metrics.log is the default
+> log file name for the test metrics.    
+      
 **Outputs:**
 ```raw
 <output_directory>  
@@ -243,7 +228,7 @@ python3 Predmoter.py -i <input_directory> -o <output_directory> -m test \
 ```
      
 ### Predicting
-Predictions will be done to all h5 files individually in input_directory/predict.   
+Predictions will be applied to an individual files only.   
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
 > "-" strand per read), so predictions are as well.
     
@@ -267,8 +252,8 @@ preferred, convert the h5 file later on using convert2coverage.py.
      
 **Command:**   
 ```bash
-python3 Predmoter.py -i <input_directory> -o <output_directory> -m predict \
---model <model_checkpoint> -f <input_file> --predict-batch-size <predict_batch_size> 
+python3 Predmoter.py -f <input_file> -o <output_directory> -m predict \
+--model <model_checkpoint> -pb <predict_batch_size> 
 # optional: --prefix <prefix>, -of <output_format>
 ```
    
