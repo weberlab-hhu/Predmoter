@@ -61,6 +61,8 @@ pip install .
 ``git+https://github.com/janinamass/dustdas@master``, it will not work on
 > the HPC, so those requirements should be commented out, downloaded on a local
 > machine and then transferred to the HPC and installed like any other repository.
+> Also delete those requirements from the ``install_requires`` and/or
+> ``dependency_links`` list in ``setup.py``.
 
 ## 3. Data preprocessing using RNAsleek
 RNAsleek is originally a semi-automated pipeline for processing public RNA-seq
