@@ -5,6 +5,7 @@ import glob
 import numpy as np
 import h5py
 from collections import Counter
+from lightning.pytorch.utilities import rank_zero_only  # don't log twice while training on multiple GPUs
 
 log = logging.getLogger("PredmoterLogger")
 
@@ -22,6 +23,7 @@ class CustomFormatter(logging.Formatter):
 def get_log_dict(output_dir, prefix):
     return {
         "version": 1,
+        "disable_existing_loggers": True,
         "formatters": {
             "custom":
                 {"()": lambda: CustomFormatter('%(asctime)s, %(levelname)s: %(message)s',
@@ -43,6 +45,16 @@ def get_log_dict(output_dir, prefix):
                                 "propagate": True},
         }
     }
+
+
+@rank_zero_only
+def rank_zero_info(msg, simple=False):
+    log.info(msg, extra={"simple": simple})
+
+
+@rank_zero_only
+def rank_zero_warn(msg, simple=False):
+    log.warning(msg, extra={"simple": simple})
 
 
 def log_table(logger, contents, spacing, header=False, table_end=False):

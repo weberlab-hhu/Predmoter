@@ -10,9 +10,10 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from predmoter.core.constants import PREDMOTER_VERSION
 from predmoter.core.parser import PredmoterParser
 from predmoter.prediction.callbacks import SeedCallback, MetricCallback, Timeit, PredictCallback
-from predmoter.utilities.utils import get_log_dict, get_h5_data, get_meta, get_available_datasets, file_stem
+from predmoter.utilities.utils import get_log_dict, rank_zero_info, rank_zero_warn, get_h5_data, \
+    get_meta, get_available_datasets, file_stem
 from predmoter.prediction.HybridModel import LitHybridNet
-from predmoter.utilities.dataset import PredmoterSequence
+from predmoter.utilities.dataset import get_dataset
 from predmoter.utilities.converter import Converter
 
 
@@ -25,9 +26,11 @@ def main():
     # Logging
     # ----------------------
     logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
-    log = logging.getLogger("PredmoterLogger")
-    log.info("\n", extra={"simple": True})
-    log.info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
+    rank_zero_info("\n", simple=True)
+    rank_zero_info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
+    if args.num_devices > 1:
+        rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs results in the creation of one dataset "
+                       f"for each device. The data read in time will be multiplied by {args.num_devices}.")
 
     # Check configurations
     # ----------------------
@@ -45,14 +48,14 @@ def main():
         ckpt_path = os.path.join(args.output_dir, f"{args.prefix}checkpoints")
         os.makedirs(ckpt_path, exist_ok=True)
         if not args.resume_training and len(os.listdir(ckpt_path)) > 0:
-            log.warning("Starting training for the first time and the checkpoint directory is not empty, "
-                        "if this is intentional you can ignore this message.")
+            rank_zero_warn("Starting training for the first time and the checkpoint directory is not empty, "
+                           "if this is intentional you can ignore this message.")
         ckpt_method = "min" if "loss" in args.ckpt_quantity else "max"
-        ckpt_filename = "predmoter_v{" + PREDMOTER_VERSION + "}_{epoch}_{" + args.ckpt_quantity + ":.4f}"
-        # f-string would mess up formatting
+        ckpt_filename = f"predmoter_v{PREDMOTER_VERSION}" + "_{epoch}_{" + args.ckpt_quantity + ":.4f}"
+        # full f-string would mess up formatting
         if args.save_top_k == 0:
-            log.warning("save-top-k = 0 means no models will be saved, "
-                        "if this is intentional you can ignore this message")
+            rank_zero_warn("save-top-k = 0 means no models will be saved, "
+                           "if this is intentional you can ignore this message")
 
         stop_method = "min" if "loss" in args.stop_quantity else "max"
 
@@ -64,7 +67,7 @@ def main():
                      EarlyStopping(monitor=args.stop_quantity, min_delta=0.0, patience=args.patience,
                                    verbose=False, mode=stop_method, strict=True, check_finite=True,
                                    check_on_train_epoch_end=True),
-                     Timeit()]
+                     Timeit(args.epochs)]
 
     elif args.mode == "test":
         callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix)]
@@ -77,7 +80,8 @@ def main():
                           f" please move or delete it")
         callbacks = [PredictCallback(out_filepath, args.filepath, args.model, args.datasets)]
 
-    trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device,
+    strategy = "ddp" if args.num_devices > 1 else "auto"  # auto is the default
+    trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
                          max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
 
     # Initialize model
@@ -88,70 +92,70 @@ def main():
         seq_len, bases = get_meta(h5_data[args.mode])
 
     if args.resume_training or args.mode in ["test", "predict"]:
-        log.info(f"Chosen model checkpoint: {args.model}")
+        rank_zero_info(f"Chosen model checkpoint: {args.model}")
         hybrid_model = LitHybridNet.load_from_checkpoint(args.model, seq_len=seq_len)
-        log.info(f"Model's dataset(s): {', '.join(args.datasets)}.")
+        rank_zero_info(f"Model's dataset(s): {', '.join(args.datasets)}.")
         assert hybrid_model.input_size == bases, \
             f"Your chosen model has the input size {hybrid_model.input_size} and your dataset {bases}." \
             f"Please use the same input size."  # rare to impossible, but just in case
     else:
-        log.info(f"Chosen dataset(s): {', '.join(args.datasets)}.")
+        rank_zero_info(f"Chosen dataset(s): {', '.join(args.datasets)}.")
         hybrid_model = LitHybridNet(args.model_type, args.cnn_layers, args.filter_size, args.kernel_size,
                                     args.step, args.up, args.dilation, args.lstm_layers, args.hidden_size,
                                     args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
                                     output_size=len(args.datasets), datasets=args.datasets)
 
-    log.info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
-             f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
+    rank_zero_info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
+                   f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
 
     # Predmoter start
     # --------------------------------
     pin_mem = True if args.device == "gpu" else False
 
     if args.mode == "train":
-        log.info(f"Loading training data into memory ...")
-        train_loader = DataLoader(PredmoterSequence(h5_data["train"], "train", args.datasets, seq_len),
-                                  batch_size=args.batch_size, shuffle=True, pin_memory=pin_mem, num_workers=0)
-        log.info(f"Loading validation data into memory ...")
-        val_loader = DataLoader(PredmoterSequence(h5_data["val"], "val", args.datasets, seq_len),
-                                batch_size=args.batch_size, shuffle=False, pin_memory=pin_mem, num_workers=0)
-        log.info(f"Training started. Resuming training: {args.resume_training}.")
+        train_loader = DataLoader(get_dataset(h5_data["train"], "train", args.datasets, seq_len, args.ram_efficient),
+                                  batch_size=args.batch_size, shuffle=True, pin_memory=pin_mem,
+                                  num_workers=args.num_workers)
+        val_loader = DataLoader(get_dataset(h5_data["val"], "val", args.datasets, seq_len, args.ram_efficient),
+                                batch_size=args.batch_size, shuffle=False, pin_memory=pin_mem,
+                                num_workers=args.num_workers)
+        rank_zero_info(f"Training started. Training on {args.num_devices} device(s). "
+                       f"Resuming training: {args.resume_training}.")
         if args.resume_training:
             # ckpt_path=model restores all previous states like callbacks, optimizer state, etc.
             trainer.fit(model=hybrid_model, ckpt_path=args.model,
                         train_dataloaders=train_loader, val_dataloaders=val_loader)
         else:
             trainer.fit(model=hybrid_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-        log.info("Training ended.")
+        rank_zero_info("Training ended.")
 
     elif args.mode == "test":
         # does the test step loop accumulate in RAM?
-        log.info(f"Testing started. Each file will be loaded into memory and tested individually.")
+        rank_zero_info(f"Testing started. Each file will be loaded into memory and tested individually.")
         for file in h5_data["test"]:
             # only use available datasets to load the test data, otherwise more RAM will be used
             avail_datasets = get_available_datasets(file, args.datasets)
-            test_loader = DataLoader(PredmoterSequence([file], "test", avail_datasets, seq_len),
+            test_loader = DataLoader(get_dataset([file], "test", avail_datasets, seq_len, args.ram_efficient),
                                      batch_size=args.test_batch_size, shuffle=False,
-                                     pin_memory=pin_mem, num_workers=0)
+                                     pin_memory=pin_mem, num_workers=args.num_workers)
             trainer.test(model=hybrid_model, dataloaders=test_loader, verbose=False)
-        log.info("Testing ended.")
+        rank_zero_info("Testing ended.")
 
     else:
-        log.info(f"Loading predict data into memory ...")
-        predict_loader = DataLoader(PredmoterSequence([h5_data["predict"]], "predict", None, seq_len),
+        predict_loader = DataLoader(get_dataset([h5_data["predict"]], "predict", None, seq_len, args.ram_efficient),
                                     batch_size=args.predict_batch_size, shuffle=False,
-                                    pin_memory=pin_mem, num_workers=0)
-        log.info("Predicting started.")
+                                    pin_memory=pin_mem, num_workers=args.num_workers)
+        rank_zero_info("Predicting started.")
         trainer.predict(model=hybrid_model, dataloaders=predict_loader)
-        log.info("Predicting ended.")
+        rank_zero_info("Predicting ended.")
 
-        log.info("Converting prediction h5 file to bigwig files.")
+        rank_zero_info("Converting prediction h5 file to bigwig files.")
         if args.output_format is not None:
             Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
                       args.output_dir, "bigwig", basename=file_stem(args.filepath), strand=None)
-        log.info("Conversion ended.")
+        rank_zero_info("Conversion ended.")
 
-    log.info("Predmoter finished.\n")
+    rank_zero_info("Predmoter finished.\n")
 
 
 if __name__ == "__main__":

@@ -140,17 +140,21 @@ class LitHybridNet(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss, acc = self.step_fn(batch)
         metrics = {"avg_train_loss": loss, "avg_train_accuracy": acc}
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")  # log for callbacks
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False,
+                      reduce_fx="mean", sync_dist=True)  # log for callbacks
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, acc = self.step_fn(batch)
         metrics = {"avg_val_loss": loss, "avg_val_accuracy": acc}
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean", sync_dist=True)
         return loss
 
     def step_fn(self, batch):
         X, Y = batch
+        # exclude gaps spanning an entire chunk (here, because it should work for both dataset classes)
+        mask = torch.tensor([x.any() for x in X])
+        X, Y = X[mask], Y[mask]
         pred = self(X)
 
         # mask padding/chromosome ends
@@ -215,7 +219,7 @@ class LitHybridNet(pl.LightningModule):
                     metrics[f"{prefix}loss"] = torch.tensor([torch.nan])
                     metrics[f"{prefix}accuracy"] = torch.tensor([torch.nan])
 
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean", sync_dist=True)
 
     def predict_step(self, batch, batch_idx, **kwargs):
         mask = self.compute_mask(batch, self.output_size)

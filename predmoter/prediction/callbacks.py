@@ -7,6 +7,7 @@ import torch
 import h5py
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch import seed_everything
+from lightning.pytorch.utilities import rank_zero_only  # don't log twice while training on multiple GPUs
 
 from predmoter.utilities.utils import log_table, file_stem
 
@@ -20,6 +21,7 @@ class MetricCallback(Callback):
         self.filename = f"{prefix}test_metrics.log" if self.mode == "test" else f"{prefix}metrics.log"
         self.file = os.path.join(output_dir, self.filename)
 
+    @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
         metrics = trainer.callback_metrics  # does not add validation sanity check
@@ -28,6 +30,7 @@ class MetricCallback(Callback):
             msg = " ".join(["epoch"] + list(metrics.keys())) + "\n" + msg  # self.metric_names
         self.save_metrics(msg)
 
+    @rank_zero_only
     def on_test_end(self, trainer, pl_module):
         metrics = trainer.callback_metrics
         # test_dataloaders[0] --> just one test dataloader is available
@@ -44,25 +47,34 @@ class MetricCallback(Callback):
 
 
 class Timeit(Callback):
-    def __init__(self):
+    def __init__(self, max_epochs):
         super().__init__()
         self.start = 0
         self.duration = 0
         self.last_epoch = 0
+        self.max_epoch = max_epochs
+        self.divide = 0
 
+    @rank_zero_only
     def on_train_start(self, trainer, pl_module):
+        epochs = self.max_epoch - trainer.current_epoch
+        self.divide = epochs // 5 if epochs > 10 else 1
         log_table(log, ["Epoch", "Total duration (min)", "Duration per epoch (min)"], spacing=24, header=True)
 
+    @rank_zero_only
     def on_train_epoch_start(self, trainer, pl_module):
         self.start = time.time()
 
+    @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module):
         self.last_epoch += 1
         self.duration += time.time() - self.start
-        total_duration = round((self.duration/60), ndigits=2)
-        log_table(log, [trainer.current_epoch, total_duration,
-                        round((total_duration/self.last_epoch), ndigits=2)], spacing=24)
+        if self.last_epoch == 1 or self.last_epoch % self.divide == 0:
+            total_duration = round((self.duration/60), ndigits=2)
+            log_table(log, [trainer.current_epoch, total_duration,
+                            round((total_duration/self.last_epoch), ndigits=2)], spacing=24)
 
+    @rank_zero_only
     def on_train_end(self, trainer, pl_module):
         total_duration = round((self.duration / 60), ndigits=2)
         log_table(log, [self.last_epoch, total_duration,
@@ -96,6 +108,7 @@ class SeedCallback(Callback):
         if self.resume:
             self.set_seed_state(self.state)
             # needs to be here as sanity check beforehand changes the torch rng state
+            # alternatively one could set num_sanity_val_steps in trainer to 0 when resuming
 
     def on_train_epoch_end(self, trainer, pl_module):
         self.state.update(self.collect_seed_state(self.include_cuda))

@@ -60,7 +60,7 @@ class PredmoterParser(BaseParser):
 
         self.config_group = self.parser.add_argument_group("Configuration parameters")
         self.config_group.add_argument("--resume-training", action="store_true",
-                                       help="add to resume training")
+                                       help="add argument to resume training")
         self.config_group.add_argument("--model", type=str, default=None,
                                        help="model checkpoint file for prediction or resuming training (if not "
                                             "<outdir>/<prefix>_checkpoints/last.ckpt, provide full path")
@@ -70,6 +70,9 @@ class PredmoterParser(BaseParser):
                                        help="the dataset prefix(es) to use; are overwritten by the model "
                                             "checkpoint's dataset prefix(es) if one is chosen (in case of "
                                             "resuming training, testing, predicting)")
+        self.config_group.add_argument("--ram-efficient", action="store_true",
+                                       help="add argument to use RAM efficient data class, "
+                                            "this will slow down training (see docs about performance)")
 
         self.model_group = self.parser.add_argument_group("Model parameters")
         self.model_group.add_argument("--model-type", type=str, default="hybrid",
@@ -116,12 +119,11 @@ class PredmoterParser(BaseParser):
                                         help="batch size for test set")
         self.trainer_group.add_argument("-pb", "--predict-batch-size", type=int, default=120,
                                         help="batch size for prediction set")
-
-        # specify which strand, will inherit from bw parser ???
         self.trainer_group.add_argument("--device", type=str, default="gpu", help="device to train on")
         self.trainer_group.add_argument("--num-devices", type=int, default=1,
-                                        help="number of devices to train on (default recommended)")
-        # block: no more than one for now, think on ddp
+                                        help="number of devices to train on (see docs about performance)")
+        self.trainer_group.add_argument("--num-workers", type=int, default=0,
+                                        help="how many subprocesses to use for data loading")
         self.trainer_group.add_argument("-e", "--epochs", type=int, default=5, help="number of training runs")
 
     def check_args(self, args):

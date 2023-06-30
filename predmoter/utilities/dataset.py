@@ -27,6 +27,8 @@ class PredmoterSequence(Dataset):
         self.y_dtype = np.float32
         self.X = []
         self.Y = []
+        if type_ != "test":
+            log.info(f"Loading {type_} data into memory ...")
         self.create_dataset()
 
     def __getitem__(self, idx):
@@ -76,21 +78,17 @@ class PredmoterSequence(Dataset):
             for i in range(0, len(h5df["data/X"]), n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 if self.type_ != "predict":
-                    # excluding large assembly gaps
-                    mask = ~np.array([x.all() for x in X])  # True if chunk contains just zeros
-                    X = X[mask]
-
                     Y = []
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=self.y_dtype)
-                            y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 4
-                            y = y[mask]
+                            y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 2 digits
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
                             Y.append(np.full((X.shape[0], X.shape[1], 1), -3, dtype=self.y_dtype))
-                    self.Y += self._encode_one(np.concatenate(Y, axis=2))
+                    Y = self._encode_one(np.concatenate(Y, axis=2))
                     mem_size += sum([sys.getsizeof(y) for y in Y])
+                    self.Y += Y
                 mem_size += sys.getsizeof(X)
                 self.X += self._unbind(X, (X.shape[1], X.shape[2]))
                 chunks += len(X)
@@ -133,3 +131,57 @@ class PredmoterSequence(Dataset):
         """Split array into list of arrays. Reshape converts resulting array shapes from
         (1, seq_len, num_dsets) to (seg_len, num_dsets)."""
         return [np.reshape(arr, shape) for arr in np.split(array, len(array), axis=0)]
+
+
+class PredmoterSequence2(Dataset):
+    def __init__(self, h5_files, type_, dsets, seq_len):
+        super().__init__()
+        self.h5_files = h5_files
+        self.type_ = type_
+        self.dsets = dsets
+        self.seq_len = seq_len
+        self.chunks = self.compute_chunks()  # i.e. file 1: 3 chunks, file 2: 7 chunks, chunks=[3, 10] (add together)
+        # create info on chunk array function here
+
+    def __getitem__(self, idx):
+        i, j = self.get_coords(idx, self.chunks)
+        h5df = h5py.File(self.h5_files[i], "r")
+        if self.type_ == "predict":
+            return torch.from_numpy(h5df["data/X"][j]).float()
+        return torch.from_numpy(h5df["data/X"][j]).float(), self.create_y(h5df, j)
+
+    def __len__(self):
+        return self.chunks[-1].item()
+
+    def compute_chunks(self):
+        chunks = []
+        chunk_count = 0
+        for file in self.h5_files:
+            h5df = h5py.File(file, "r")
+            chunk_count += h5df["data/X"].shape[0]
+            chunks.append(chunk_count)
+        return torch.tensor(chunks)
+
+    @staticmethod
+    def get_coords(idx, chunk_tensor):
+        if idx < chunk_tensor[0].item():  # first file
+            return 0, idx
+        chunk_tensor = chunk_tensor[chunk_tensor <= idx]
+        return len(chunk_tensor), (idx - torch.max(chunk_tensor).item())
+
+    def create_y(self, h5df, idx):
+        Y = []
+        for key in self.dsets:
+            if f"{key}_coverage" in h5df["evaluation"].keys():
+                y = torch.from_numpy(h5df[f"evaluation/{key}_coverage"][idx]).float()  # shape: (seq_len, bam_files)
+                y = torch.mean(y, dim=1).round(decimals=2)  # avg of replicates, round to 2 digits
+                Y.append(y)
+            else:
+                Y.append(torch.full((self.seq_len,), -3).float())
+        return torch.stack(Y, dim=1)
+
+
+def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient):
+    if ram_efficient:
+        return PredmoterSequence2(h5_files, type_, dsets, seq_len)
+    return PredmoterSequence(h5_files, type_, dsets, seq_len)
