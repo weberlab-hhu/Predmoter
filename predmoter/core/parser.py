@@ -42,7 +42,7 @@ class PredmoterParser(BaseParser):
 
         self.io_group = self.parser.add_argument_group("Data input/output parameters")
         self.io_group.add_argument("-i", "--input-dir", type=str, default=".",
-                                   help="containing one train and val directory for training and/or "
+                                   help="containing one train and one val directory for training and/or "
                                         "a test directory for testing (directories must contain h5 files)")
         self.io_group.add_argument("-o", "--output-dir", type=str, default=".",
                                    help="output: log file(s), checkpoint directory with model checkpoints "
@@ -62,41 +62,47 @@ class PredmoterParser(BaseParser):
         self.config_group.add_argument("--resume-training", action="store_true",
                                        help="add argument to resume training")
         self.config_group.add_argument("--model", type=str, default=None,
-                                       help="model checkpoint file for prediction or resuming training (if not "
-                                            "<outdir>/<prefix>_checkpoints/last.ckpt, provide full path")
+                                       help="model checkpoint file for predicting, testing or resuming"
+                                            "training (if not <outdir>/<prefix>_checkpoints/last.ckpt,"
+                                            "provide full path")
         # model default: <outdir>/<prefix>_checkpoints/last.ckpt -> just if resume train or resources or None
         self.config_group.add_argument("--datasets", type=str, nargs="+",
                                        dest="datasets", default=["atacseq", "h3k4me3"],
                                        help="the dataset prefix(es) to use; are overwritten by the model "
                                             "checkpoint's dataset prefix(es) if one is chosen (in case of "
                                             "resuming training, testing, predicting)")
-        self.config_group.add_argument("--ram-efficient", action="store_true",
-                                       help="add argument to use RAM efficient data class, "
-                                            "this will slow down training (see docs about performance)")
+        self.config_group.add_argument("--ram-efficient", type=BaseParser.str2bool, default=True,
+                                       help="if true will use RAM efficient data class (see docs/performance.md), "
+                                            "Warning: Don't move the input data while Predmoter is running.")
 
         self.model_group = self.parser.add_argument_group("Model parameters")
-        self.model_group.add_argument("--model-type", type=str, default="hybrid",
-                                      help="The type of model to train. Valid types are cnn, "
-                                           "hybrid (CNN + LSTM) and bi-hybrid (CNN + bidirectional LSTM).")
-        self.model_group.add_argument("--cnn-layers", type=int, default=1, help="(default: %(default)d)")
-        self.model_group.add_argument("--filter-size", type=int, default=64, help="(default: %(default)d)")
-        self.model_group.add_argument("--kernel-size", type=int, default=9, help="(default: %(default)d)")
-        self.model_group.add_argument("--step", type=int, default=2, help="equals stride")
+        self.model_group.add_argument("--model-type", type=str, default="bi-hybrid",
+                                      help="the type of model to train, valid types are: cnn, "
+                                           "hybrid (CNN + LSTM), bi-hybrid (CNN + bidirectional LSTM)")
+        self.model_group.add_argument("--cnn-layers", type=int, default=1,
+                                      help="number of convolutional layers (e.g. 3 layers: 3 layer "
+                                           "convolution and 3 layer deconvolution")
+        self.model_group.add_argument("--filter-size", type=int, default=64,
+                                      help="filter size for convolution, is scaled up per layer after the first by up")
+        self.model_group.add_argument("--kernel-size", type=int, default=9, help="kernel size for convolution")
+        self.model_group.add_argument("--step", type=int, default=2, help="stride for convolution")
         self.model_group.add_argument("--up", type=int, default=2,
-                                      help="multiplier used for up-scaling the convolutional filter per layer")
+                                      help="multiplier used for up-scaling the convolutional filter per "
+                                           "layer after the first")
         self.model_group.add_argument("--dilation", type=int, default=1,
-                                      help="dilation should be kept at the default, as it isn't that "
+                                      help="dilation should be kept at the default, as it isn't "
                                            "useful for sequence data")
-        self.model_group.add_argument("--lstm-layers", type=int, default=1, help="(default: %(default)d)")
+        self.model_group.add_argument("--lstm-layers", type=int, default=1, help="LSTM layers")
         self.model_group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
         self.model_group.add_argument("--bnorm", type=BaseParser.str2bool, default=True,
                                       help="add a batch normalization layer after each convolutional layer")
         self.model_group.add_argument("--dropout", type=float, default=0.,
-                                      help="adds a dropout layer with the specified dropout value after each "
-                                           "LSTM layer except the last; if it is 0. no dropout layers are added; "
-                                           "if there is just one LSTM layer specifying dropout will do nothing")
+                                      help="adds a dropout layer with the specified dropout value (between "
+                                           "0. and 1.) after each LSTM layer except the last; if it is 0. "
+                                           "no dropout layers are added; if there is just one LSTM layer "
+                                           "specifying dropout will do nothing")
         self.model_group.add_argument("-lr", "--learning-rate", type=float, default=0.001,
-                                      help="(default: %(default)f)")
+                                      help="learning rate for training (default recommended)")
 
         self.trainer_group = self.parser.add_argument_group("Trainer/callback parameters")
         self.trainer_group.add_argument("--seed", type=int, default=None,
@@ -106,25 +112,28 @@ class PredmoterParser(BaseParser):
                                              "likelihood, accuracy: Pearson's R (valid: avg_train_loss, "
                                              "avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
         self.trainer_group.add_argument("--save-top-k", type=int, default=-1,
-                                        help="saves the top k (e.g. 3) models; -1 means every model gets saved")
+                                        help="saves the top k (e.g. 3) models; -1 means every model gets saved;"
+                                             "the last model checkpoint saved is named last.ckpt")
         self.trainer_group.add_argument("--stop_quantity", type=str, default="avg_train_loss",
                                         help="quantity to monitor for early stopping; loss: poisson negative log "
                                              "likelihood, accuracy: Pearson's R (valid: avg_train_loss, "
                                              "avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
         self.trainer_group.add_argument("--patience", type=int, default=5,
-                                        help="allowed epochs without the quantity improving before stopping training")
+                                        help="allowed epochs without the stop quantity improving before "
+                                             "stopping training")
         self.trainer_group.add_argument("-b", "--batch-size", type=int, default=120,
-                                        help="batch size for training and validation sets")
-        self.trainer_group.add_argument("-tb", "--test-batch-size", type=int, default=120,
-                                        help="batch size for test set")
-        self.trainer_group.add_argument("-pb", "--predict-batch-size", type=int, default=120,
-                                        help="batch size for prediction set")
+                                        help="batch size for training, validation, test or prediction sets")
         self.trainer_group.add_argument("--device", type=str, default="gpu", help="device to train on")
         self.trainer_group.add_argument("--num-devices", type=int, default=1,
-                                        help="number of devices to train on (see docs about performance)")
+                                        help="number of devices to train on (see docs about performance), "
+                                             "devices have to be on the same machine (leave at default "
+                                             "for test/predict)")
         self.trainer_group.add_argument("--num-workers", type=int, default=0,
                                         help="how many subprocesses to use for data loading")
-        self.trainer_group.add_argument("-e", "--epochs", type=int, default=5, help="number of training runs")
+        self.trainer_group.add_argument("-e", "--epochs", type=int, default=5,
+                                        help="number of training runs; Attention: max_epochs, so when training "
+                                             "for 2 epochs and then resuming training for 4 additional epochs, "
+                                             "you need -e 6")
 
     def check_args(self, args):
         # Mode
@@ -198,6 +207,10 @@ class PredmoterParser(BaseParser):
 
         assert args.device in ["cpu", "gpu"], \
             "valid devices are cpu or gpu, Predmoter is not configured to work on other devices"
+
+        if args.mode != "train":
+            assert args.num_devices == 1, "testing/predicting should be done on 1 device only to ensure " \
+                                          "that each sample/batch gets evaluated/predicted exactly once"
 
 
 class ConverterParser(BaseParser):

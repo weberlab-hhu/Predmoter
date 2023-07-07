@@ -28,9 +28,9 @@ def main():
     logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
     rank_zero_info("\n", simple=True)
     rank_zero_info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
-    if args.num_devices > 1:
-        rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs results in the creation of one dataset "
-                       f"for each device. The data read in time will be multiplied by {args.num_devices}.")
+    if args.num_devices > 1 and not args.ram_efficient:
+        rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs to train on results in the creation of one "
+                       f"dataset for each device. The data read in time will be multiplied by {args.num_devices}.")
 
     # Check configurations
     # ----------------------
@@ -42,7 +42,6 @@ def main():
     # Callbacks and Trainer
     # ----------------------
     if args.mode == "train":
-        # device if resume training --> works if seed callback has torch.cuda?
         include_cuda = True if args.device == "gpu" else False
 
         ckpt_path = os.path.join(args.output_dir, f"{args.prefix}checkpoints")
@@ -60,7 +59,7 @@ def main():
         stop_method = "min" if "loss" in args.stop_quantity else "max"
 
         callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix),
-                     SeedCallback(args.seed, args.resume_training, args.model, include_cuda),
+                     SeedCallback(args.seed, args.resume_training, args.model, include_cuda, args.num_workers),
                      ModelCheckpoint(save_top_k=args.save_top_k, monitor=args.ckpt_quantity,
                                      mode=ckpt_method, dirpath=ckpt_path, filename=ckpt_filename,
                                      save_last=True, save_on_train_epoch_end=True),
@@ -70,7 +69,8 @@ def main():
                      Timeit(args.epochs)]
 
     elif args.mode == "test":
-        callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix)]
+        callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix),
+                     Timeit(None)]
 
     else:
         outfile = f"{file_stem(args.filepath)}_predictions.h5"
@@ -78,7 +78,8 @@ def main():
         if os.path.exists(out_filepath):
             raise OSError(f"the predictions output file {outfile} exists in {args.output_dir},"
                           f" please move or delete it")
-        callbacks = [PredictCallback(out_filepath, args.filepath, args.model, args.datasets)]
+        callbacks = [PredictCallback(out_filepath, args.filepath, args.model, args.datasets),
+                     Timeit(None)]
 
     strategy = "ddp" if args.num_devices > 1 else "auto"  # auto is the default
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
@@ -131,29 +132,28 @@ def main():
 
     elif args.mode == "test":
         # does the test step loop accumulate in RAM?
-        rank_zero_info(f"Testing started. Each file will be loaded into memory and tested individually.")
+        rank_zero_info(f"Testing started. Each file will be tested individually.")
         for file in h5_data["test"]:
             # only use available datasets to load the test data, otherwise more RAM will be used
             avail_datasets = get_available_datasets(file, args.datasets)
             test_loader = DataLoader(get_dataset([file], "test", avail_datasets, seq_len, args.ram_efficient),
-                                     batch_size=args.test_batch_size, shuffle=False,
+                                     batch_size=args.batch_size, shuffle=False,
                                      pin_memory=pin_mem, num_workers=args.num_workers)
             trainer.test(model=hybrid_model, dataloaders=test_loader, verbose=False)
         rank_zero_info("Testing ended.")
 
     else:
         predict_loader = DataLoader(get_dataset([h5_data["predict"]], "predict", None, seq_len, args.ram_efficient),
-                                    batch_size=args.predict_batch_size, shuffle=False,
+                                    batch_size=args.batch_size, shuffle=False,
                                     pin_memory=pin_mem, num_workers=args.num_workers)
         rank_zero_info("Predicting started.")
         trainer.predict(model=hybrid_model, dataloaders=predict_loader)
-        rank_zero_info("Predicting ended.")
 
-        rank_zero_info("Converting prediction h5 file to bigwig files.")
         if args.output_format is not None:
+            rank_zero_info(f"Converting prediction h5 file to {args.output_format} files.")
             Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
-                      args.output_dir, "bigwig", basename=file_stem(args.filepath), strand=None)
-        rank_zero_info("Conversion ended.")
+                      args.output_dir, args.output_format, basename=file_stem(args.filepath), strand=None)
+            rank_zero_info("Conversion ended.")
 
     rank_zero_info("Predmoter finished.\n")
 

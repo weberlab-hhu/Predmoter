@@ -9,7 +9,7 @@ from lightning.pytorch.callbacks import Callback
 from lightning.pytorch import seed_everything
 from lightning.pytorch.utilities import rank_zero_only  # don't log twice while training on multiple GPUs
 
-from predmoter.utilities.utils import log_table, file_stem
+from predmoter.utilities.utils import log_table, file_stem, rank_zero_info, rank_zero_warn
 
 log = logging.getLogger("PredmoterLogger")
 
@@ -50,7 +50,6 @@ class Timeit(Callback):
     def __init__(self, max_epochs):
         super().__init__()
         self.start = 0
-        self.duration = 0
         self.last_epoch = 0
         self.max_epoch = max_epochs
         self.divide = 0
@@ -59,35 +58,50 @@ class Timeit(Callback):
     def on_train_start(self, trainer, pl_module):
         epochs = self.max_epoch - trainer.current_epoch
         self.divide = epochs // 5 if epochs > 10 else 1
-        log_table(log, ["Epoch", "Total duration (min)", "Duration per epoch (min)"], spacing=24, header=True)
-
-    @rank_zero_only
-    def on_train_epoch_start(self, trainer, pl_module):
         self.start = time.time()
+        log_table(log, ["Epoch", "Total duration (min)", "Duration per epoch (min)"], spacing=24, header=True)
 
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module):
         self.last_epoch += 1
-        self.duration += time.time() - self.start
+        duration = time.time() - self.start
         if self.last_epoch == 1 or self.last_epoch % self.divide == 0:
-            total_duration = round((self.duration/60), ndigits=2)
+            total_duration = round((duration/60), ndigits=2)
             log_table(log, [trainer.current_epoch, total_duration,
                             round((total_duration/self.last_epoch), ndigits=2)], spacing=24)
 
     @rank_zero_only
     def on_train_end(self, trainer, pl_module):
-        total_duration = round((self.duration / 60), ndigits=2)
+        total_duration = round(((time.time() - self.start) / 60), ndigits=2)
         log_table(log, [self.last_epoch, total_duration,
                         round((total_duration/self.last_epoch), ndigits=2)], spacing=24, table_end=True)
 
+    @rank_zero_only
+    def on_test_start(self, trainer, pl_module):
+        self.start = time.time()
 
-# will num_workers work?? -> test, try shorter set_seed, leave random seed to lightning
+    @rank_zero_only
+    def on_test_end(self, trainer, pl_module):
+        log.info(f"Testing took {round(((time.time() - self.start) / 60), ndigits=2)} min.")
+
+    @rank_zero_only
+    def on_predict_start(self, trainer, pl_module):
+        self.start = time.time()
+
+    @rank_zero_only
+    def on_predict_end(self, trainer, pl_module):
+        log.info(f"Predicting ended. It took {round(((time.time() - self.start) / 60), ndigits=2)} min.")
+
+
+# try shorter set_seed, leave random seed to lightning
 class SeedCallback(Callback):
-    def __init__(self, seed: int, resume: bool, model_path, include_cuda: bool):
+    def __init__(self, seed: int, resume: bool, model_path, include_cuda: bool, num_workers):
         self.resume = resume
         self.include_cuda = include_cuda
+        self.workers = True if num_workers > 0 else False
+
         if not self.resume:
-            self.seed = self.set_seed(seed)
+            self.seed = self.set_seed(seed, self.workers)
             self.state = self.collect_seed_state(self.include_cuda)
         else:
             # load model checkpoint callback
@@ -96,13 +110,19 @@ class SeedCallback(Callback):
             # retrieve seed and state dict from model checkpoint
             self.seed = seed_callback_dict["seed"]
             self.state = seed_callback_dict["rng_states"]
-            log.info(f"The seed provided by the model is: {self.seed}.")
+            rank_zero_info(f"The seed provided by the model is: {self.seed}.")
             if "torch.cuda" in self.state.keys() and not include_cuda:
-                log.warning("You are resuming training of a GPU trained model on the CPU. "
-                            "This is unintended. This training might not be reproducible.")
+                rank_zero_warn("You are resuming training of a GPU trained model on the CPU. "
+                               "This is unintended. The training might not be reproducible.")
             if "torch.cuda" not in self.state.keys() and include_cuda:
-                log.warning("You are resuming training of a CPU trained model on the GPU. "
-                            "This is unintended. This training might not be reproducible.")
+                rank_zero_warn("You are resuming training of a CPU trained model on the GPU. "
+                               "This is unintended. The training might not be reproducible.")
+
+            # set os variables (seed_everything() does this automatically)
+            # distributed sampler (used by ddp to train on multiple devices) uses PL_GLOBAL_SEED
+            # to recover the seed to shuffle and subsample the training dataset
+            os.environ["PL_GLOBAL_SEED"] = str(seed)
+            os.environ["PL_SEED_WORKERS"] = f"{int(self.workers)}"
 
     def on_train_start(self, trainer, pl_module):
         if self.resume:
@@ -121,17 +141,16 @@ class SeedCallback(Callback):
         return {"seed": self.seed, "rng_states": self.state.copy()}
 
     @staticmethod
-    def set_seed(seed):
+    def set_seed(seed, workers):
         max_seed_value = np.iinfo(np.uint32).max
         min_seed_value = np.iinfo(np.uint32).min
 
         if seed is None or not (min_seed_value <= seed <= max_seed_value):
             seed = random.randint(min_seed_value, max_seed_value)
-            log.info(f"A seed wasn't provided by the user. The random seed is: {seed}.")
+            rank_zero_info(f"A seed wasn't provided by the user. The random seed is: {seed}.")
         else:
-            log.info(f"The seed provided by the user is: {seed}.")
-        seed_everything(seed=seed, workers=False)  # seed for reproducibility
-        # adapt to num workers if it works with resume training and is faster
+            rank_zero_info(f"The seed provided by the user is: {seed}.")
+        seed_everything(seed=seed, workers=workers)  # seed for reproducibility
         return seed
 
     @staticmethod

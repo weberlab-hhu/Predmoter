@@ -70,10 +70,15 @@ class LitHybridNet(pl.LightningModule):
         # ----------------------
         if model_type != "cnn":
             bidirectional = True if model_type == "bi-hybrid" else False
-            # input: last dimension of tensor, output: (batch, new_seq_len, hidden_size)
-            self.lstm = nn.LSTM(input_size=input_size, hidden_size=self.hidden_size,
-                                num_layers=self.lstm_layers, batch_first=True,
-                                bidirectional=bidirectional, dropout=self.dropout)
+            # workaround: built-in lstm dropout not reproducible when setting seed state
+            self.lstm_layer_list = nn.ModuleList()
+            for layer in range(self.lstm_layers):
+                # input: last dimension of tensor, output: (batch, new_seq_len, hidden_size)
+                self.lstm_layer_list.append(nn.LSTM(input_size=input_size, hidden_size=self.hidden_size,
+                                                    num_layers=1, batch_first=True, bidirectional=bidirectional))
+                if self.dropout > 0 and (layer + 1) != self.lstm_layers:  # add dropout to every layer except the last
+                    self.lstm_layer_list.append(nn.Dropout(self.dropout))
+                input_size = self.hidden_size
 
         # Transposed CNN part:
         # ----------------------
@@ -116,7 +121,14 @@ class LitHybridNet(pl.LightningModule):
             # LSTM part:
             # ----------------------
             # size of hidden and cell state: (num_layers, batch_size, hidden_size)
-            x, _ = self.lstm(x)  # _ = (hn, cn)
+            for i, layer in enumerate(self.lstm_layer_list):
+                if self.dropout > 0:
+                    if i % 2 == 0:
+                        x, _ = layer(x)  # _ = (hn, cn)
+                    else:
+                        x = layer(x)
+                else:
+                    x, _ = layer(x)  # _ = (hn, cn)
 
             x = x.transpose(1, 2)
 
@@ -293,6 +305,13 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def poisson_nll_loss(prediction, target, is_log=True):
+        """Custom way of calculating Poisson negative log likelihood loss.
+
+        The formula is adapted from Pytorch's Poisson loss function
+        (see https://github.com/pytorch/pytorch/blob/main/torch/_refs/nn/functional/__init__.py).
+        This is a simpler version, that uses torch.nanmean() as a reduction method to simulate masking,
+        as Pytorch MaskedTensors are still in the prototype phase.
+        """
         dims = len(prediction.size())
         assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
         if is_log:

@@ -28,9 +28,9 @@ A known conflict leading to the program failing is using the listed Pytorch
 Lightning version (1.6.4) and PyTorch 1.12, when loading a pretrained model.
 The saved Adam optimizer state conflicts with a new implementation in PyTorch 1.12
 compared to 1.11 (https://github.com/pytorch/pytorch/issues/80809).
-This is fixed in the later versions.     
+This is fixed in later versions.     
    
-Sofware versions:   
+Software versions:   
 - **CUDA**: 11.7.1
 - **cuDNN**: 8.7.0
 - **Python**: 3.8.3
@@ -54,6 +54,11 @@ TBA
 ## Usage
 >**NOTE**: Please keep the output files, especially the ``predmoter.log`` file,
 > as it contains valuable information on setups, models and data you used!
+    
+For a list of all Predmoter options see the
+[detailed description](docs/Predmoter_options.md).     
+For detailed information about performance see the
+[performance documentation](docs/performance.md).
     
 ### Directories
 Predmoter chooses the input files according to the directory name. You need to
@@ -138,7 +143,7 @@ by Predmoter.
 > See the [cuDNN 8 Release Notes](https://docs.nvidia.com/deeplearning/cudnn/release-notes/rel_8.html)
 > for more information.
 >   
->Issues with non-deterministic behaiviour of LSTMs weren't encountered so far
+>Issues with non-deterministic behavior of LSTMs weren't encountered so far
 > during training of Predmoter.
 
 ```bash
@@ -203,7 +208,7 @@ Predmoter will search for the model ``output_directory/<prefix>_checkpoints/last
 > it will only train for 3 more epochs and **not** for an additional 15!!
     
 ### Testing
-Validation will be applied to all h5 files individually in input_directory/test.    
+Testing will be applied to all h5 files individually in input_directory/test.    
 **Outputs:**
 ```raw
 <output_directory>  
@@ -247,14 +252,19 @@ done on both + and - strand (essentially providing built-in data augmentation),
 as ATAC- and ChIP-seq data is usually 'unstranded' (open chromatin applies to
 both strands). Bigwig/bedgraph files are also non-strand-specific, so the average
 of the predictions for + and - strand are calculated. The file naming convention is:
-<basename_of_input_file>_dataset_avg_strand.bw/bg.gz. If just + or - strand is
+``<basename_of_input_file>_dataset_avg_strand.bw/bg.gz``. If just + or - strand is
 preferred, convert the h5 file later on using convert2coverage.py.
      
 **Command:**   
 ```bash
+# predict and convert h5 output file to coverage file directly
 python3 Predmoter.py -f <input_file> -o <output_directory> -m predict \
---model <model_checkpoint> -pb <predict_batch_size> 
-# optional: --prefix <prefix>, -of <output_format>
+--model <model_checkpoint> -pb <predict_batch_size> -of bigwig
+# optional: --prefix <prefix>
+
+# convert h5 output file after prediction
+python3 convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
+--basename <basename> --strand +
 ```
    
 The logging information will be appended to ``<prefix>_predmoter.log`` if it
@@ -280,21 +290,30 @@ the models' name (including the path), as a reminder if you ever loose the log f
 and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k4me3").   
    
     
-Predmoter can be used on Windows by excluding the pyBigWig in the requirements and
-commenting out the ``import pyBigWig`` in ``predmoter.utilities.converter``.
-The only coverage file output possible would then be bedgraph files. A conversion to
-bigwig is only possible on Linux either directly via Predmoter from the predictions
-h5 file or via the binaries from UCSC Genome Browser
-(http://hgdownload.soe.ucsc.edu/admin/exe/).    
+> **Warning:** Predmoter can be used on Windows by excluding the pyBigWig in the
+> requirements and commenting out the ``import pyBigWig`` in 
+> ``predmoter.utilities.converter``, as pyBigWig is only available on Linux.
+> The only coverage file output possible would then be bedgraph files.
+    
+Another helpful option to convert bigwig to bedgraph files and vice versa
+on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
     
 ```bash
 # make the binary executable
-chmod 764 bedGraphToBigWig
+chmod 764 bedGraphToBigWig  # converts bedgraph to bigwig
 
-# execute the binary
+# execute the binaries
 ./bedGraphToBigWig in.bedGraph chrom.sizes out.bw
+./bigWigToBedGraph in.bigWig out.bedGraph
 ```
     
+## Reproducibility
+Predmoter is reproducible to a point. When you choose the exact same setup (including
+input data) and train for 3 epochs or for 2 epochs and then resume for 1 epoch, the
+results (metrics) will be identical. Setups known to screw with the reproducibility
+are switching between devices (CPU, GPU), changing the number of workers/devices or
+using different hardware than before.
+     
 ## References
 Buenrostro, J. D., Giresi, P. G., Zaba, L. C., Chang, H. Y., & Greenleaf,
 W. J. (2013). Transposition of native chromatin for fast and sensitive

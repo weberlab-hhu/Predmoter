@@ -57,7 +57,7 @@ def rank_zero_warn(msg, simple=False):
     log.warning(msg, extra={"simple": simple})
 
 
-def log_table(logger, contents, spacing, header=False, table_end=False):
+def log_table(logger, contents, spacing, header=False, table_end=False, rank_zero=False):
     """Log table rows incrementally to the log file"""
     contents = list(map(str, contents))  # converts to string
     contents = [f"{i: <{spacing}}" if len(i) <= spacing else f"{i[:spacing - 2]}" + ".." for i in contents]
@@ -70,7 +70,10 @@ def log_table(logger, contents, spacing, header=False, table_end=False):
     elif table_end:
         msg = "-" * len(msg) + "\n" + msg + "\n"
 
-    logger.info(msg, extra={"simple": True})
+    if rank_zero:
+        rank_zero_info(msg, simple=True)
+    else:
+        logger.info(msg, extra={"simple": True})
 
 
 def get_available_datasets(h5_file, datasets):
