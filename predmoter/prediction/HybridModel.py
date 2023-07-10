@@ -78,7 +78,7 @@ class LitHybridNet(pl.LightningModule):
                                                     num_layers=1, batch_first=True, bidirectional=bidirectional))
                 if self.dropout > 0 and (layer + 1) != self.lstm_layers:  # add dropout to every layer except the last
                     self.lstm_layer_list.append(nn.Dropout(self.dropout))
-                input_size = self.hidden_size
+                input_size = 2 * self.hidden_size if bidirectional else self.hidden_size
 
         # Transposed CNN part:
         # ----------------------
