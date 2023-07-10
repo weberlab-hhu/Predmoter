@@ -121,7 +121,7 @@ class SeedCallback(Callback):
             # set os variables (seed_everything() does this automatically)
             # distributed sampler (used by ddp to train on multiple devices) uses PL_GLOBAL_SEED
             # to recover the seed to shuffle and subsample the training dataset
-            os.environ["PL_GLOBAL_SEED"] = str(seed)
+            os.environ["PL_GLOBAL_SEED"] = str(self.seed)
             os.environ["PL_SEED_WORKERS"] = f"{int(self.workers)}"
 
     def on_train_start(self, trainer, pl_module):
