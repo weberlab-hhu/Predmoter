@@ -178,7 +178,7 @@ control ATAC- and ChIP-seq data, as well as adjusting some RNAsleek files. One s
     
 ```bash
 python3 setup_qsubs.py -d <project_directory> -c <project_directory>/<config.ini> \
---dset <dataset_prefix> --ref
+--dset <dataset_prefix> --ref --usr-name <hpc_user_name>
 # example dataset prefix: atacseq
 # --ref if you want to add the reference annotation to the final h5 file
 # (if there is none, don't choose it)
@@ -245,7 +245,7 @@ h5 files created from public NGS data (fastq files).
 | Category | Download data |      Trimming       | Quality control |           Mapping            | Quality control | Deduplication/Data cleaning |                                                      Quality control                                                       |              H5 file creation              |
 |:--------:|:-------------:|:-------------------:|:---------------:|:----------------------------:|:---------------:|:---------------------------:|:--------------------------------------------------------------------------------------------------------------------------:|:------------------------------------------:|
 |  Tools   |  SRA Toolkit  | Trimmomatic<br>Java |     FastQC      |       BWA<br>SamTools        |    SamTools     | Picard<br>Java<br>SamTools  |                                              deepTools<br>Helixer<br>gffread                                               |                  Helixer                   |
-|  qsubs   |       /       |  trimmomatic.qsub   |   fastqc.qsub   | genome_prep.qsub<br>bwa.qsub |  flagstat.qsub  |    mark_duplicates.qsub     | plotCoverage.qsub<br> plotFingerprint.qsub<br>tobigwig.qsub<br>helixer_pred.qsub<br>computeMatrix.qsub<br>plotHeatmap.qsub | create_fasta_h5.qsub<br>add_<dataset>.qsub |
+|  qsubs   |       /       |  trimmomatic.qsub   |   fastqc.qsub   | genome_prep.qsub<br>bwa.qsub |  flagstat.qsub  |    mark_duplicates.qsub     | plotCoverage.qsub<br> plotFingerprint.qsub<br>tobigwig.qsub<br>helixer_pred.qsub<br>computeMatrix.qsub<br>plotHeatmap.qsub | create_fasta_h5.qsub<br>add_"dataset".qsub |
      
 Additionally, the helixer or reference annotations can be added to the final h5
 file using Geenuff and the scripts: ``sqlite.qsub`` and ``add_helixer.qsub``, and/or

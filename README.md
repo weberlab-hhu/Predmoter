@@ -127,24 +127,7 @@ achieved by using a seed. If no seed is provided Predmoter will choose a random
 seed. The seed state is saved each epoch and included in the saved model, so
 training can be resumed with the last seed state. Of course the same input data
 needs to be provided as well, the input files are always alphabetically sorted
-by Predmoter.    
-    
->**Warning**: From the [LSTM Pytorch documentation](https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html):   
->There are known non-determinism issues for RNN functions on some versions
-> of cuDNN and CUDA. You can enforce deterministic behavior by setting the
-> following environment variables:
->   
->On CUDA 10.1, set environment variable ``CUDA_LAUNCH_BLOCKING=1``.
-> This may affect performance.   
->   
->On CUDA 10.2 or later, set environment variable (note the leading colon symbol)
-> ``CUBLAS_WORKSPACE_CONFIG=:16:8 or CUBLAS_WORKSPACE_CONFIG=:4096:2.``  
->    
-> See the [cuDNN 8 Release Notes](https://docs.nvidia.com/deeplearning/cudnn/release-notes/rel_8.html)
-> for more information.
->   
->Issues with non-deterministic behavior of LSTMs weren't encountered so far
-> during training of Predmoter.
+by Predmoter.
 
 ```bash
 # start training  with default parameters
@@ -313,6 +296,23 @@ input data) and train for 3 epochs or for 2 epochs and then resume for 1 epoch, 
 results (metrics) will be identical. Setups known to screw with the reproducibility
 are switching between devices (CPU, GPU), changing the number of workers/devices or
 using different hardware than before.
+     
+>**Warning**: From the [LSTM Pytorch documentation](https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html):   
+>There are known non-determinism issues for RNN functions on some versions
+> of cuDNN and CUDA. You can enforce deterministic behavior by setting the
+> following environment variables:
+>   
+>On CUDA 10.1, set environment variable ``CUDA_LAUNCH_BLOCKING=1``.
+> This may affect performance.   
+>   
+>On CUDA 10.2 or later, set environment variable (note the leading colon symbol)
+> ``CUBLAS_WORKSPACE_CONFIG=:16:8 or CUBLAS_WORKSPACE_CONFIG=:4096:2.``  
+>    
+> See the [cuDNN 8 Release Notes](https://docs.nvidia.com/deeplearning/cudnn/release-notes/rel_8.html)
+> for more information.
+>   
+>Issues with non-deterministic behavior of LSTMs weren't encountered so far
+> during training of Predmoter.
      
 ## References
 Buenrostro, J. D., Giresi, P. G., Zaba, L. C., Chang, H. Y., & Greenleaf,

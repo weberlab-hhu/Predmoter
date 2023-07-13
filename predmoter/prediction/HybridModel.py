@@ -70,7 +70,7 @@ class LitHybridNet(pl.LightningModule):
         # ----------------------
         if model_type != "cnn":
             bidirectional = True if model_type == "bi-hybrid" else False
-            # workaround: built-in lstm dropout not reproducible when setting seed state
+            # workaround: built-in lstm dropout not reproducible when resuming training/setting seed state
             self.lstm_layer_list = nn.ModuleList()
             for layer in range(self.lstm_layers):
                 # input: last dimension of tensor, output: (batch, new_seq_len, hidden_size)
@@ -78,7 +78,7 @@ class LitHybridNet(pl.LightningModule):
                                                     num_layers=1, batch_first=True, bidirectional=bidirectional))
                 if self.dropout > 0 and (layer + 1) != self.lstm_layers:  # add dropout to every layer except the last
                     self.lstm_layer_list.append(nn.Dropout(self.dropout))
-                input_size = 2 * self.hidden_size if bidirectional else self.hidden_size
+                input_size = hidden_size
 
         # Transposed CNN part:
         # ----------------------

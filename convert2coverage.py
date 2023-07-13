@@ -1,3 +1,4 @@
+#! /usr/bin/env python3
 from predmoter.core.parser import ConverterParser
 from predmoter.utilities.converter import Converter
 

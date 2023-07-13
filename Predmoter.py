@@ -1,3 +1,4 @@
+#! /usr/bin/env python3
 import os
 import logging
 import logging.config
@@ -30,7 +31,8 @@ def main():
     rank_zero_info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
     if args.num_devices > 1 and not args.ram_efficient:
         rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs to train on results in the creation of one "
-                       f"dataset for each device. The data read in time will be multiplied by {args.num_devices}.")
+                       f"dataset for each device. The data read in time and RAM consumption will be multiplied "
+                       f"by {args.num_devices}. Consider using the default --ram-efficient true.")
 
     # Check configurations
     # ----------------------
@@ -81,7 +83,7 @@ def main():
         callbacks = [PredictCallback(out_filepath, args.filepath, args.model, args.datasets),
                      Timeit(None)]
 
-    strategy = "ddp" if args.num_devices > 1 else "auto"  # auto is the default
+    strategy = "ddp" if args.num_devices > 1 else "auto"  # auto is the default in pl.Trainer()
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
                          max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
 
@@ -106,7 +108,7 @@ def main():
                                     args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
                                     output_size=len(args.datasets), datasets=args.datasets)
 
-    rank_zero_info(f"\n\nModel summary (model type: {hybrid_model.model_type}; dropout: {hybrid_model.dropout}):"
+    rank_zero_info(f"\n\nModel summary (model type: {hybrid_model.model_type})"
                    f"\n{ModelSummary(model=hybrid_model, max_depth=-1)}\n")
 
     # Predmoter start

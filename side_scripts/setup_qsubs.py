@@ -108,21 +108,13 @@ source $HOME/deeptools_env/bin/activate
 cd $PBS_O_WORKDIR
 
 {log_start}
-\n""" + """array1=(deduplicated/*.bam)
-array2=( "${array[@]##*/}" )  # strip off directory names
-array2=( "${array2[@]%.bam}" ) # strip off extensions
 
-# write to files
-printf "%s\\n" "${array[@]}" > deepqc/bam_files.txt
-printf "%s\\n" "${array2[@]}" > deepqc/basenames.txt
+# Run job
+sample_id=`sed $PBS_ARRAY_INDEX"q;d" sample_ids.txt`
+$HOME/deepTools/bin/bamCoverage -b deduplicated/$sample_id".bam" -o deepqc/$sample_id".bw" -of bigwig \\
+{redirect_err_out}
 
-# PBS arrays
-file=`sed $PBS_ARRAY_INDEX"q;d" deepqc/bam_files.txt`
-basename=`sed $PBS_ARRAY_INDEX"q;d" deepqc/basenames.txt`
-
-$HOME/deepTools/bin/bamCoverage -b $file -o deepqc/$basename.bw -of bigwig \\
-2> logs/$PBS_JOBNAME.e${PBS_JOBID%\[*}.$PBS_ARRAY_INDEX 1> logs/$PBS_JOBNAME.o${PBS_JOBID%\[*}.$PBS_ARRAY_INDEX
-\n""" + f"{log_end}"
+{log_end}"""
         f.write(text)
 
     # part 4: helixer prediction
@@ -362,7 +354,7 @@ geenuff2h5.py --h5-output-path h5/{spec}.h5 --input-db-path helixer_pred/{spec}_
             with open(f"{directory}/scripts/{file}", "r") as f:
                 text = f.read()
 
-            text = text.replace(" O=deduplicated/S", " O=deduplicated/marked/S")
+            text = text.replace(" O=deduplicated/", " O=deduplicated/marked/")
             text = text.replace("-F 1024 deduplicated/", "-F 1796 deduplicated/marked/")
 
             with open(f"{directory}/scripts/{file}", "w") as f:
