@@ -36,11 +36,16 @@ class LitHybridNet(pl.LightningModule):
         # this saves the args from __init__() under the names used there, not the class attributes
         self.save_hyperparameters()
 
-        # Check seq_len
+        # Check model config
         # ----------------------
         if (self.seq_len % self.step ** self.cnn_layers) != 0:
             raise ValueError(f"sequence length {self.seq_len} is not divisible by a step of {self.step} "
                              f"to the power of {self.cnn_layers} cnn layers")
+
+        if self.step == 1 and kernel_size % 2 == 0:
+            raise ValueError("Even kernel_sizes are not supported for a step/stride of 1 due to Pytorch's "
+                             "rule of configuring ConvTranspose1d() layers. Outputting the same sequence "
+                             "length in that case would require setting output_padding=1, which is not allowed.")
 
         # CNN part:
         # ----------------------
@@ -83,12 +88,12 @@ class LitHybridNet(pl.LightningModule):
         # Transposed CNN part:
         # ----------------------
         self.up_layer_list = nn.ModuleList()  # up part of the U-net
-        out_pad = 1 if self.step % 2 == 0 else 0  # uneven strides doesn't need output padding
+        out_pad = 0 if (self.kernel_size + self.step) % 2 == 0 else 1
 
         for layer in range(cnn_layers, 0, -1):  # count layers backwards
             l_in = self.seq_len / self.step ** layer
             l_out = l_in * self.step
-            tpad = self.trans_padding(l_in, l_out, self.step, self.dilation, self.kernel_size)
+            tpad = self.trans_padding(l_in, l_out, self.step, self.dilation, self.kernel_size, out_pad)
             filter_size = self.filter_list[layer-1]  # iterate backwards over filter_list
             self.up_layer_list.append(nn.ConvTranspose1d(hidden_size, filter_size, self.kernel_size,
                                                          stride=self.step, padding=tpad, dilation=self.dilation,
@@ -104,7 +109,7 @@ class LitHybridNet(pl.LightningModule):
     def forward(self, x):
         # CNN part:
         # ----------------------
-        x = x.transpose(1, 2)  # convolution over the base pairs, change position of 2. and 3. dimension
+        x = x.transpose(1, 2).contiguous()  # convolution over the base pairs, change position of 2. and 3. dimension
 
         for i, layer in enumerate(self.down_layer_list):
             if self.bnorm:
@@ -116,7 +121,7 @@ class LitHybridNet(pl.LightningModule):
                 x = F.relu(layer(x))
 
         if self.model_type != "cnn":
-            x = x.transpose(1, 2)
+            x = x.transpose(1, 2).contiguous()
 
             # LSTM part:
             # ----------------------
@@ -130,7 +135,7 @@ class LitHybridNet(pl.LightningModule):
                 else:
                     x, _ = layer(x)  # _ = (hn, cn)
 
-            x = x.transpose(1, 2)
+            x = x.transpose(1, 2).contiguous()
 
         # Transposed CNN part:
         # ----------------------
@@ -143,7 +148,7 @@ class LitHybridNet(pl.LightningModule):
             else:
                 x = F.relu(layer(x))
 
-        x = x.transpose(1, 2)
+        x = x.transpose(1, 2).contiguous()
 
         # Linear part:
         # ----------------------
@@ -270,7 +275,7 @@ class LitHybridNet(pl.LightningModule):
         return padding
 
     @staticmethod
-    def trans_padding(l_in, l_out, stride, dilation, kernel_size):
+    def trans_padding(l_in, l_out, stride, dilation, kernel_size, output_pad):
         """Padding formula for TransposeConv1d.
 
         The formula is adapted the formula for calculating the output sequence length (L_out)
@@ -283,13 +288,13 @@ class LitHybridNet(pl.LightningModule):
                 stride: 'int', strides/steps of kernel points
                 dilation: 'int', spacing between kernel points
                 kernel_size: 'int'
+                output_pad: 'int', additional size added to one side of the output shape
 
             Returns:
                 padding: 'int', padding needed to achieve multiplication "without remainder"
                     of sequence length, e.g. input seq_len: 5, stride: 2, expected/
                     necessary output seq_len: 10
         """
-        output_pad = 1 if stride % 2 == 0 else 0
         padding = ((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2
         return int(padding)
 

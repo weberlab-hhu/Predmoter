@@ -145,9 +145,12 @@ class SeedCallback(Callback):
         max_seed_value = np.iinfo(np.uint32).max
         min_seed_value = np.iinfo(np.uint32).min
 
-        if seed is None or not (min_seed_value <= seed <= max_seed_value):
+        if seed is None:
             seed = random.randint(min_seed_value, max_seed_value)
             rank_zero_info(f"A seed wasn't provided by the user. The random seed is: {seed}.")
+        elif not (min_seed_value <= seed <= max_seed_value):
+            seed = random.randint(min_seed_value, max_seed_value)
+            rank_zero_info(f"Invalid seed given. The new random seed is: {seed}.")
         else:
             rank_zero_info(f"The seed provided by the user is: {seed}.")
         seed_everything(seed=seed, workers=workers)  # seed for reproducibility
