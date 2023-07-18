@@ -152,7 +152,7 @@ def main():
         trainer.predict(model=hybrid_model, dataloaders=predict_loader)
 
         if args.output_format is not None:
-            rank_zero_info(f"Converting prediction h5 file to {args.output_format} files.")
+            rank_zero_info(f"Converting prediction h5 file to {args.output_format} file(s).")
             Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
                       args.output_dir, args.output_format, basename=file_stem(args.filepath), strand=None)
             rank_zero_info("Conversion ended.")

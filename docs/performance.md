@@ -8,7 +8,7 @@ rule of thumb is to use ``4 workers * number of devices``.
 ## The ram-efficient argument
 There are two dataset classes, that can be used by Predmoter:    
 1. PredmoterSequence:
-   - argument: ``--ram-efficient false`` (default)
+   - argument: ``--ram-efficient false``
    - compresses all data and stores it in RAM
    - takes time, depending on the dataset size a significant amount of time
      (the longest tested around 2h), before training to process all the data
@@ -18,7 +18,7 @@ There are two dataset classes, that can be used by Predmoter:
      
      
 2. PredmoterSequence2:
-    - argument: ``--ram-efficient true``     
+    - argument: ``--ram-efficient true`` (default) 
     - reads data directly from the hard-drive/file for each chunk
     - takes no time before the training to process the data
     - slows down training as the data is always reprocessed at each get_item call
