@@ -77,12 +77,22 @@ class PredmoterSequence(Dataset):
             mem_size, chunks = 0, 0
             for i in range(0, len(h5df["data/X"]), n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
+                # blacklist masking
+                # -----------------
+                if "mask" in h5df["data"].keys():
+                    mask = np.array(h5df["data/mask"][i:i + n], dtype=bool)
+                    X = X[mask]
+                    if len(X) == 0:
+                        continue
+                # ------------------
                 if self.type_ != "predict":
                     Y = []
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=self.y_dtype)
                             y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 2 digits
+                            if "mask" in h5df["data"].keys():
+                                y = y[mask]  # blacklist masking
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
                             Y.append(np.full((X.shape[0], X.shape[1], 1), -3, dtype=self.y_dtype))
@@ -173,7 +183,10 @@ class PredmoterSequence2(Dataset):
         log_table(log, ["H5 files", "Chunks", "NGS datasets"], spacing=20, header=True, rank_zero=True)  # logging
         for file in self.h5_files:
             h5df = h5py.File(file, "r")
-            count = h5df["data/X"].shape[0]
+            if "mask" in h5df["data"].keys():
+                count = np.sum(h5df["data/mask"][:])  # blacklist masking
+            else:
+                count = h5df["data/X"].shape[0]
             # logging
             # -------
             if self.type_ != "predict":
