@@ -79,7 +79,7 @@ class PredmoterSequence(Dataset):
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 # blacklist masking
                 # -----------------
-                if "mask" in h5df["data"].keys():
+                if "mask" in h5df["data"].keys() and self.type_ != "predict":
                     mask = np.array(h5df["data/mask"][i:i + n], dtype=bool)
                     X = X[mask]
                     if len(X) == 0:
@@ -183,7 +183,7 @@ class PredmoterSequence2(Dataset):
         log_table(log, ["H5 files", "Chunks", "NGS datasets"], spacing=20, header=True, rank_zero=True)  # logging
         for file in self.h5_files:
             h5df = h5py.File(file, "r")
-            if "mask" in h5df["data"].keys():
+            if "mask" in h5df["data"].keys() and self.type_ != "predict":
                 count = np.sum(h5df["data/mask"][:])  # blacklist masking
             else:
                 count = h5df["data/X"].shape[0]

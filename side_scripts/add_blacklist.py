@@ -24,6 +24,7 @@ def main(input_json, h5_file):
         mask = ~np.in1d(h5df["data/seqids"][i:i + n], bl_chroms)
         # True: chunk will be retained, False: chunk is masked/blacklisted
         h5df["data/mask"][i:i + n] = mask
+    print("Finished adding mask/blacklist regions.")
 
 
 def get_blacklist_chromosomes(input_json):
@@ -34,10 +35,12 @@ def get_blacklist_chromosomes(input_json):
             line = json.loads(line)
             if i == 0:
                 accession = "refseqAccession" if "refseqAccession" in line.keys() else "genbankAccession"
-            if line["chrName"] == "Un" and i == 0:
-                print("Cannot apply masking to a genome assembly only containing unplaced scaffolds/contigs")
-                sys.exit(1)
-            elif line["chrName"] == "Un" or line["assemblyUnit"] == "non-nuclear":
+            if (line["chrName"] == "Un" or line["role"] == "unplaced-scaffold" or
+                    line["role"] == "unlocalized-scaffold") and i == 0:
+                print("Cannot apply masking to a genome assembly only containing unplaced scaffolds/contigs.")
+                sys.exit(0)
+            elif line["chrName"] == "Un" or line["assemblyUnit"] == "non-nuclear" \
+                    or line["role"] == "unplaced-scaffold" or line["role"] == "unlocalized-scaffold":
                 blacklist_chromosomes.append(line[accession].encode())
                 # h5 seqids are byte strings, so the blacklist ones are too for easy comparison
     return np.array(blacklist_chromosomes)
