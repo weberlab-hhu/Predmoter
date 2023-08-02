@@ -160,7 +160,7 @@ samtools index <sample_ID>.bam
 Only the predictions/annotation from Helixer were used for consistency, but if the
 genome already has an annotation you can also use that and skip the fourth step.
 You can also blacklist regions (bed file) in the fifth step, if the previous plot
-was too noisy. An easy way is to blacklist the chloroplast, plastid and unplaced
+was too noisy. An easy way is to blacklist the chloroplast, mitochondrion and unplaced
 scaffolds, as they have been observed to frequently cause noise in ATAC-seq data.
     
 #### 2.7.1. Plot coverage
@@ -218,8 +218,14 @@ files=`ls <path_to_bigwig_files>*.bw`
 -o <species>_tss_heatmap.png
 ```
     
-The heatmap should show a peak in front of the transcription start site (TSS) for
-ATAC-seq and around/behind the TSS for H3K4me3 ChIP-seq.   
+The heatmap should show a peak in front of/around the transcription start site (TSS)
+for ATAC-seq and behind the TSS for H3K4me3 ChIP-seq.   
+     
+**ATAC-seq example of _Brachypodium distachyon_:**
+![](Brachypodium_distachyon_ATACseq.png)
+     
+**ChIP-seq example of _Brachypodium distachyon_:**
+![](Brachypodium_distachyon_ChIPseq.png)
      
 ### References
 - Arnold, K., Gosling, J., & Holmes, D. (2005). The Java programming language.

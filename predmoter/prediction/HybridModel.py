@@ -7,7 +7,6 @@ import lightning.pytorch as pl
 from predmoter.core.constants import EPS
 
 
-# add way more selves
 class LitHybridNet(pl.LightningModule):
     def __init__(self, model_type, cnn_layers, filter_size, kernel_size, step, up, dilation, lstm_layers,
                  hidden_size, bnorm, dropout, learning_rate, seq_len, input_size, output_size, datasets):
@@ -170,7 +169,7 @@ class LitHybridNet(pl.LightningModule):
     def step_fn(self, batch):
         X, Y = batch
         # exclude gaps spanning an entire chunk (here, because it should work for both dataset classes)
-        mask = torch.tensor([x.any() for x in X])
+        mask = torch.max(X[:, :, 0], dim=1)[0] != 0.25  # mask entire N chunks
         X, Y = X[mask], Y[mask]
         pred = self(X)
 
@@ -181,10 +180,10 @@ class LitHybridNet(pl.LightningModule):
         Y[mask] = torch.nan
 
         pred, Y = self.unpack(pred), self.unpack(Y)
-        # mask NaNs if there is more than 1 ngs dataset
+        # mask filler if there is more than 1 ngs dataset
         # -------------------------------------------------
         if self.output_size > 1:
-            mask = [not y[0] == -3 for y in Y]  # False if -3 fill value in tensor
+            mask = torch.where(Y[:, 0] == -3, False, True)  # False if -3 fill value in tensor
             # mask missing ngs data (not every file has every dataset)
             pred, Y = pred[mask], Y[mask]
 
@@ -236,7 +235,7 @@ class LitHybridNet(pl.LightningModule):
                     metrics[f"{prefix}loss"] = torch.tensor([torch.nan])
                     metrics[f"{prefix}accuracy"] = torch.tensor([torch.nan])
 
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean", sync_dist=True)
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean")
 
     def predict_step(self, batch, batch_idx, **kwargs):
         mask = self.compute_mask(batch, self.output_size)
@@ -301,12 +300,10 @@ class LitHybridNet(pl.LightningModule):
     @staticmethod
     def compute_mask(base_tensor, repeats):
         """Compute mask to exclude padding/Ns."""
-        mask = torch.sum(base_tensor, dim=2)  # zero for bases that are padding/Ns
-        mask = mask.reshape(mask.size(0), mask.size(1), 1)
-        mask = mask.bool()
-        # mask.repeat(1, 1, 1) will not change mask tensor
-        mask = mask.repeat(1, 1, repeats)
-        return ~mask
+        mask = ~torch.max(base_tensor, dim=2)[0].bool()  # True for bases that are padding/Ns
+        if repeats == 1:
+            return mask.reshape(mask.size(0), mask.size(1), 1)
+        return torch.stack([mask] * repeats, dim=2)
 
     @staticmethod
     def poisson_nll_loss(prediction, target, is_log=True):
@@ -349,8 +346,8 @@ class LitHybridNet(pl.LightningModule):
         dims = len(prediction.size())
         assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
         if dims == 2:
-            prediction = torch.squeeze(prediction.transpose(0, 1))
-            target = torch.squeeze(target.transpose(0, 1))
+            prediction = prediction.transpose(0, 1)
+            target = target.transpose(0, 1)
 
         if is_log:
             prediction = torch.exp(prediction)
@@ -363,7 +360,7 @@ class LitHybridNet(pl.LightningModule):
         return torch.mean(coeff)
 
     @staticmethod
-    def unpack(tensor):  # check if it works for dimensions greater than 3 -> really needed?
+    def unpack(tensor):
         """Reduce dimensionality of tensors.
 
         3-dimensional tensors are unpacked into 2-dimensional tensors, e.g. (3, 500, 2) gets

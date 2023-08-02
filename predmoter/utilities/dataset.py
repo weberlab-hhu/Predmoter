@@ -23,8 +23,9 @@ class PredmoterSequence(Dataset):
         self.total_mem_size = []
         self.dsets = dsets
         self.seq_len = seq_len
-        self.x_dtype = np.int8
+        self.x_dtype = np.float16
         self.y_dtype = np.float32
+        self.bases = h5py.File(h5_files[0], mode="r")["data/X"].shape[-1]
         self.X = []
         self.Y = []
         if type_ != "test":
@@ -33,8 +34,8 @@ class PredmoterSequence(Dataset):
 
     def __getitem__(self, idx):
         if self.type_ == "predict":
-            return torch.from_numpy(self.X[idx]).float()
-        return torch.from_numpy(self.X[idx]).float(), \
+            return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases))
+        return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases)), \
             self._decode_one(self.Y[idx], self.y_dtype, shape=(self.seq_len, len(self.dsets)))
 
     def __len__(self):
@@ -89,8 +90,9 @@ class PredmoterSequence(Dataset):
                     Y = self._encode_one(np.concatenate(Y, axis=2))
                     mem_size += sum([sys.getsizeof(y) for y in Y])
                     self.Y += Y
-                mem_size += sys.getsizeof(X)
-                self.X += self._unbind(X, (X.shape[1], X.shape[2]))
+                X = self._encode_one(X)
+                mem_size += sum([sys.getsizeof(x) for x in X])
+                self.X += X
                 chunks += len(X)
             self.chunks.append(chunks)
             self.total_mem_size.append(mem_size)
@@ -126,12 +128,6 @@ class PredmoterSequence(Dataset):
         array = np.array(array)  # without this line the array is not writeable
         return torch.from_numpy(array).float()
 
-    @staticmethod
-    def _unbind(array, shape):
-        """Split array into list of arrays. Reshape converts resulting array shapes from
-        (1, seq_len, num_dsets) to (seg_len, num_dsets)."""
-        return [np.reshape(arr, shape) for arr in np.split(array, len(array), axis=0)]
-
 
 class PredmoterSequence2(Dataset):
     def __init__(self, h5_files, type_, dsets, seq_len):
@@ -150,11 +146,11 @@ class PredmoterSequence2(Dataset):
         # dtype=int8 for X to convert N=[0.25, 0.25, 0.25, 0.25] to [0, 0, 0, 0]
         # this is necessary for masking during training
         if self.type_ == "predict":
-            return torch.from_numpy(np.array(h5df["data/X"][j], dtype=np.int8)).float()
-        return torch.from_numpy(np.array(h5df["data/X"][j], dtype=np.int8)).float(), self.create_y(h5df, j)
+            return torch.from_numpy(h5df["data/X"][j]).float()
+        return torch.from_numpy(h5df["data/X"][j]).float(), self.create_y(h5df, j)
 
     def __len__(self):
-        return self.chunks[-1].item()
+        return self.chunks[-1]
 
     def compute_chunks(self):
         """Computes the chunks of each h5 file by summing them up.
@@ -191,10 +187,10 @@ class PredmoterSequence2(Dataset):
                       spacing=20, table_end=True, rank_zero=True)
         else:
             rank_zero_info("\n", simple=True)
-        return torch.tensor(chunks)
+        return np.array(chunks)
 
     @staticmethod
-    def get_coords(idx, chunk_tensor):
+    def get_coords(idx, chunk_array):
         """Converting one index to the coordinates of a chunk in a specific h5 file.
 
         Example:
@@ -204,10 +200,10 @@ class PredmoterSequence2(Dataset):
         of the second h5 file (index 1 in the h5_files list). This function returns then (1, 8). The
         first index denotes the h5 file to choose, the second one the chunk inside that h5 file.
         """
-        if idx < chunk_tensor[0].item():  # in case the chunk is in the first file
+        if idx < chunk_array[0]:  # in case the chunk is in the first file
             return 0, idx
-        chunk_tensor = chunk_tensor[chunk_tensor <= idx]
-        return len(chunk_tensor), (idx - torch.max(chunk_tensor).item())
+        chunk_tensor = chunk_array[chunk_array <= idx]
+        return len(chunk_tensor), (idx - np.max(chunk_tensor))
 
     def create_y(self, h5df, idx):
         """Create the correct Y array/tensor the exact same way as in PredmoterSequence."""

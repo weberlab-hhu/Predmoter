@@ -109,14 +109,14 @@ class PredmoterParser(BaseParser):
                                         help="for reproducibility, if not provided will be chosen randomly")
         self.trainer_group.add_argument("--ckpt_quantity", type=str, default="avg_val_accuracy",
                                         help="quantity to monitor for checkpoints; loss: poisson negative log "
-                                             "likelihood, accuracy: Pearson's R (valid: avg_train_loss, "
+                                             "likelihood, accuracy: Pearson's r (valid: avg_train_loss, "
                                              "avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
         self.trainer_group.add_argument("--save-top-k", type=int, default=-1,
                                         help="saves the top k (e.g. 3) models; -1 means every model gets saved;"
                                              "the last model checkpoint saved is named last.ckpt")
         self.trainer_group.add_argument("--stop_quantity", type=str, default="avg_train_loss",
                                         help="quantity to monitor for early stopping; loss: poisson negative log "
-                                             "likelihood, accuracy: Pearson's R (valid: avg_train_loss, "
+                                             "likelihood, accuracy: Pearson's r (valid: avg_train_loss, "
                                              "avg_train_accuracy, avg_val_loss, avg_val_accuracy)")
         self.trainer_group.add_argument("--patience", type=int, default=5,
                                         help="allowed epochs without the stop quantity improving before "
