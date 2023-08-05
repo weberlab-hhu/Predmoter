@@ -49,6 +49,15 @@ class PredmoterParser(BaseParser):
                                         "(if training), predictions (if predicting)")
         self.io_group.add_argument("-f", "--filepath", type=str, default=None,
                                    help="input file to predict on, either h5 or fasta file")
+        self.io_group.add_argument("--subsequence-length", type=int, default=21384,
+                                   help="size of the chunks each genomic sequence gets cut into, only useful "
+                                        "for predicting on fasta files")
+        self.io_group.add_argument("--species", type=str, default=None,
+                                   help="species name required if the prediction is done on a fasta file")
+        self.io_group.add_argument("--multiprocess", action="store_true",
+                                   help="parallelize the numerification of large sequences, uses half the memory "
+                                        "but can be much slower when many CPU cores can be utilized; "
+                                        "only useful for predicting on fasta files")
         self.io_group.add_argument("-of", "--output-format", type=str, default=None,
                                    help="output format for predictions, if unspecified will output no additional "
                                         "files besides the h5 file (valid: bigwig (bw), bedgraph (bg)); "
@@ -159,6 +168,8 @@ class PredmoterParser(BaseParser):
                     raise FileNotFoundError(f"file {args.filepath} doesn't exist")
                 if not os.path.isfile(args.filepath):  # remove?, check predict file differently
                     raise OSError(f"the chosen file {args.filepath} is not a file")
+            if args.filepath.lower().endswith((".fasta", ".fna", ".ffn", ".faa", ".frn", ".fa")):
+                assert args.species is not None, "to use a fasta file to predict on, --species must be specified"
 
         if args.output_format is not None:
             assert args.output_format in ["bigwig", "bedgraph", "bw", "bg"], \

@@ -170,6 +170,10 @@ class PredmoterSequence2(Dataset):
         for file in self.h5_files:
             h5df = h5py.File(file, "r")
             count = h5df["data/X"].shape[0]
+            if h5df["data/X"].shape[1] != self.seq_len:
+                # in case of train/val/test data, just one predict file allowed
+                raise ValueError(f"all {self.type_} input files need to have the same sequence "
+                                 f"length, here: {self.seq_len}")
             # logging
             # -------
             if self.type_ != "predict":

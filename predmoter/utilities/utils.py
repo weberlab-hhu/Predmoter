@@ -6,6 +6,10 @@ import numpy as np
 import h5py
 from collections import Counter
 from lightning.pytorch.utilities import rank_zero_only  # don't log twice while training on multiple GPUs
+from lightning.pytorch.utilities.model_summary import ModelSummary
+from helixer.export.exporter import HelixerFastaToH5Controller
+
+from predmoter.prediction.HybridModel import LitHybridNet
 
 log = logging.getLogger("PredmoterLogger")
 
@@ -140,6 +144,27 @@ def get_h5_data(input_dir, mode, dsets):
     return h5_data
 
 
+def prep_predict_data(filepath):
+    """Check the two valid predict file formats: h5 and fasta."""
+    if filepath.lower().endswith((".fasta", ".fna", ".ffn", ".faa", ".frn", ".fa")):
+        return {"predict": [filepath], "fasta": True}  # list for consistency reasons
+    try:
+        h5py.File(filepath, "r")
+    except OSError as e:
+        raise OSError(f"{filepath} is not a h5 file") from e
+    return {"predict": [filepath]}  # list for consistency reasons
+
+
+def fasta2h5(filepath, h5_output_path, subseq_len, multiprocess):
+    """Convert fasta file to h5 file using Helixer."""
+    rank_zero_info("Converting fasta input file to h5 file.")
+    controller = HelixerFastaToH5Controller(filepath, h5_output_path)
+    controller.export_fasta_to_h5(chunk_size=subseq_len, compression="gzip",
+                                  multiprocess=multiprocess, species="Lorem_ipsum")
+    rank_zero_info("Conversion to h5 file finished.")
+    # filler species, as this h5 file will be deleted anyway
+
+
 def get_meta(h5_file):
     """Get metadata about the sequence length and the input size (bases).
 
@@ -156,3 +181,23 @@ def get_meta(h5_file):
 def file_stem(path):
     """Returns the file name without extension. Adapted from Helixer."""
     return os.path.basename(path).split('.')[0]
+
+
+def init_model(args, seq_len, bases, load_from_checkpoint: bool):  # args = Predmoter args
+    """Initialize the model."""
+    if load_from_checkpoint:
+        # if something ever changes in the nucleotide encoding,
+        # bases of the input files == model input_size need to be checked here
+        rank_zero_info(f"Chosen model checkpoint: {args.model}")
+        model = LitHybridNet.load_from_checkpoint(args.model, seq_len=seq_len)
+        rank_zero_info(f"Model's dataset(s): {', '.join(args.datasets)}.")
+    else:
+        rank_zero_info(f"Chosen dataset(s): {', '.join(args.datasets)}.")
+        model = LitHybridNet(args.model_type, args.cnn_layers, args.filter_size, args.kernel_size,
+                             args.step, args.up, args.dilation, args.lstm_layers, args.hidden_size,
+                             args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
+                             output_size=len(args.datasets), datasets=args.datasets)
+
+    rank_zero_info(f"\n\nModel summary (model type: {model.model_type})"
+                   f"\n{ModelSummary(model=model, max_depth=-1)}\n")
+    return model
