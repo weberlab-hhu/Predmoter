@@ -2,6 +2,7 @@ import os
 import logging
 import sys
 import glob
+import time
 import numpy as np
 import h5py
 from collections import Counter
@@ -157,11 +158,12 @@ def prep_predict_data(filepath):
 
 def fasta2h5(filepath, h5_output_path, subseq_len, multiprocess):
     """Convert fasta file to h5 file using Helixer."""
+    start = time.time()
     rank_zero_info("Converting fasta input file to h5 file.")
     controller = HelixerFastaToH5Controller(filepath, h5_output_path)
     controller.export_fasta_to_h5(chunk_size=subseq_len, compression="gzip",
                                   multiprocess=multiprocess, species="Lorem_ipsum")
-    rank_zero_info("Conversion to h5 file finished.")
+    rank_zero_info(f"Conversion to h5 file finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.")
     # filler species, as this h5 file will be deleted anyway
 
 

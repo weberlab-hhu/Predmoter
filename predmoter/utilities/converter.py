@@ -1,10 +1,15 @@
 import os
+import logging
+import time
 import h5py
 import numpy as np
 import pyBigWig
 import gzip
 
 from predmoter.core.constants import MAX_VALUES_IN_RAM
+
+
+log = logging.getLogger("PredmoterLogger")
 
 
 class Converter:
@@ -26,7 +31,10 @@ class Converter:
         self.last_start = None
         self.last_end = None
         self.last_value = None
+        start = time.time()
+        log.info(f"Starting conversion of the file {infile} to {outformat} file(s).")
         self.convert()
+        log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.")
 
     def get_output_files(self, output_dir, basename):
         """Create list of output files.

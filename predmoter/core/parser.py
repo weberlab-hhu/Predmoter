@@ -37,7 +37,7 @@ class PredmoterParser(BaseParser):
     def __init__(self):
         super().__init__(prog="Predmoter", description="predict NGS data associated with regulatory DNA regions")
         self.parser.add_argument("--version", action="version", version=f"%(prog)s {PREDMOTER_VERSION}")
-        self.parser.add_argument("-m", "--mode", type=str, default=None, required=True,
+        self.parser.add_argument("-m", "--mode", type=str.lower, default=None, required=True,
                                        help="valid modes: train, test or predict")
 
         self.io_group = self.parser.add_argument_group("Data input/output parameters")
@@ -50,15 +50,15 @@ class PredmoterParser(BaseParser):
         self.io_group.add_argument("-f", "--filepath", type=str, default=None,
                                    help="input file to predict on, either h5 or fasta file")
         self.io_group.add_argument("--subsequence-length", type=int, default=21384,
-                                   help="size of the chunks each genomic sequence gets cut into, only useful "
+                                   help="size of the chunks each genomic sequence gets cut into; only needed "
                                         "for predicting on fasta files")
         self.io_group.add_argument("--species", type=str, default=None,
                                    help="species name required if the prediction is done on a fasta file")
         self.io_group.add_argument("--multiprocess", action="store_true",
-                                   help="parallelize the numerification of large sequences, uses half the memory "
-                                        "but can be much slower when many CPU cores can be utilized; "
-                                        "only useful for predicting on fasta files")
-        self.io_group.add_argument("-of", "--output-format", type=str, default=None,
+                                   help="add to parallelize the numerification of large sequences, uses half "
+                                        "the memory but can be much slower when many CPU cores can be utilized; "
+                                        "only needed for predicting on fasta files")
+        self.io_group.add_argument("-of", "--output-format", type=str.lower, default=None,
                                    help="output format for predictions, if unspecified will output no additional "
                                         "files besides the h5 file (valid: bigwig (bw), bedgraph (bg)); "
                                         "the file naming convention is: <basename_of_input_file>_dataset_"
@@ -85,7 +85,7 @@ class PredmoterParser(BaseParser):
                                             "Warning: Don't move the input data while Predmoter is running.")
 
         self.model_group = self.parser.add_argument_group("Model parameters")
-        self.model_group.add_argument("--model-type", type=str, default="bi-hybrid",
+        self.model_group.add_argument("--model-type", type=str.lower, default="bi-hybrid",
                                       help="the type of model to train, valid types are: cnn, "
                                            "hybrid (CNN + LSTM), bi-hybrid (CNN + bidirectional LSTM)")
         self.model_group.add_argument("--cnn-layers", type=int, default=1,
@@ -104,7 +104,8 @@ class PredmoterParser(BaseParser):
         self.model_group.add_argument("--lstm-layers", type=int, default=1, help="LSTM layers")
         self.model_group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
         self.model_group.add_argument("--bnorm", type=BaseParser.str2bool, default=True,
-                                      help="add a batch normalization layer after each convolutional layer")
+                                      help="add a batch normalization layer after each convolutional "
+                                           "and transpose convolutional layer")
         self.model_group.add_argument("--dropout", type=float, default=0.,
                                       help="adds a dropout layer with the specified dropout value (between "
                                            "0. and 1.) after each LSTM layer except the last; if it is 0. "
@@ -132,7 +133,7 @@ class PredmoterParser(BaseParser):
                                              "stopping training")
         self.trainer_group.add_argument("-b", "--batch-size", type=int, default=120,
                                         help="batch size for training, validation, test or prediction sets")
-        self.trainer_group.add_argument("--device", type=str, default="gpu", help="device to train on")
+        self.trainer_group.add_argument("--device", type=str.lower, default="gpu", help="device to train on")
         self.trainer_group.add_argument("--num-devices", type=int, default=1,
                                         help="number of devices to train on (see docs about performance), "
                                              "devices have to be on the same machine (leave at default "
@@ -231,7 +232,7 @@ class ConverterParser(BaseParser):
                                  help="input h5 predictions file (Predmoter output)")
         self.parser.add_argument("-o", "--output-dir", type=str, default=".",
                                  help="output directory for all converted files")
-        self.parser.add_argument("-of", "--output-format", type=str, default="bigwig",
+        self.parser.add_argument("-of", "--output-format", type=str.lower, default="bigwig",
                                  help="output format for predictions (valid: bigwig (bw), bedgraph (bg))")
         self.parser.add_argument("--basename", type=str, default=None, required=True,
                                  help="basename of the output files, naming convention: "
@@ -256,11 +257,3 @@ class ConverterParser(BaseParser):
             f"valid output formats are bigwig (bw) and bedgraph (bg) not {args.output_format}"
 
         assert args.strand in ["+", "-", None], f"valid strand is either +, - or None not {args.strand}"
-
-
-class AddAverageParser(BaseParser):
-    def __init__(self):
-        super().__init__(prog="AddAverage",
-                         description="compute average of NGS dataset and add it to the h5 input file")
-        self.io_group = self.parser.add_argument_group("Data input/output parameters")
-        pass

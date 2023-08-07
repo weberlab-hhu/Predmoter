@@ -193,6 +193,14 @@ class LitHybridNet(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         X, Y = batch
+
+        # mask entire chunk gaps
+        # ------------------------------
+        mask = torch.max(X[:, :, 0], dim=1)[0] != 0.25  # mask entire N chunks
+        X, Y = X[mask], Y[mask]
+        if len(X) == 0:
+            return
+
         pred = self(X)
 
         # retrieve the dataset's dataset(s) from the one test dataloader

@@ -83,7 +83,7 @@ def test(args, input_data, seq_len, pin_mem, strategy):
     callbacks = [MetricCallback(args.output_dir, args.mode, args.prefix),
                  Timeit(None)]
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
-                         max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
+                         max_epochs=args.epochs, logger=False, enable_progress_bar=False)
 
     # Testing
     # ----------------------
@@ -123,7 +123,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
     callbacks = [PredictCallback(out_filepath, input_data[0], args.model, args.datasets),
                  Timeit(None)]
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
-                         max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
+                         max_epochs=args.epochs, logger=False, enable_progress_bar=False)
 
     # Predicting
     # ----------------------
@@ -134,15 +134,18 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
     trainer.predict(model=hybrid_model, dataloaders=predict_loader)
 
     if args.output_format is not None:
-        rank_zero_info(f"Converting prediction h5 file to {args.output_format} file(s).")
         Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
                   args.output_dir, args.output_format, basename=file_stem(args.filepath), strand=None)
-        rank_zero_info("Conversion ended.")
 
 
 def main():
     pp = PredmoterParser()
     args = pp.get_args()
+    if args.mode == "train" and args.resume_training:
+        epochs_trained = torch.load(args.model)["epoch"]
+        if epochs_trained <= (args.epochs - 1):
+            raise ValueError(f"when resuming training, the chosen number of epochs need to be > epochs "
+                             f"already trained, the model {args.model} already trained {(epochs_trained + 1)}")
     if args.resume_training or args.mode in ["test", "predict"]:
         args.datasets = torch.load(args.model)["hyper_parameters"]["datasets"]
 
