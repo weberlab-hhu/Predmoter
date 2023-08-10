@@ -9,7 +9,7 @@ from predmoter.utilities.converter import Converter
 def main():
     pp = ConverterParser()
     args = pp.get_args()
-    logging.config.dictConfig(get_log_dict(args.output_dir, ""))
+    logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
     Converter(args.input_file, args.output_dir, args.output_format, args.basename, args.strand)
 
 

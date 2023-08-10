@@ -163,7 +163,7 @@ dataset into its own bigwig or bedgraph file. The Converter also needs ``seqids`
 ``start_ends`` to calculate chromosome order and chromosome lengths.
     
 ## 2. H5 file creation
-**Tools:** Helixer (dev branch), GeenuFF (optional), Predmoter
+**Tools:** Helixer, GeenuFF (optional), Predmoter
 (Stiehler et al., 2021; Weberlab: Institute of Plant Biochemistry, HHU: GitHub, n.d.)     
      
 ATAC- and ChIP-seq data is PCR amplified. Therefore, you can not determine from which

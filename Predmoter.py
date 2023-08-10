@@ -143,7 +143,7 @@ def main():
     args = pp.get_args()
     if args.mode == "train" and args.resume_training:
         epochs_trained = torch.load(args.model)["epoch"]
-        if epochs_trained <= (args.epochs - 1):
+        if epochs_trained >= (args.epochs - 1):
             raise ValueError(f"when resuming training, the chosen number of epochs need to be > epochs "
                              f"already trained, the model {args.model} already trained {(epochs_trained + 1)}")
     if args.resume_training or args.mode in ["test", "predict"]:

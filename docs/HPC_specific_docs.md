@@ -72,7 +72,7 @@ script ``setup_qsubs.py`` in ``side_scripts``.
     
 > **WARNING:** Expected virtual environment (env) names, locations and/or branches by
 > the qsub files:
->- **Helixer:** env: ``<hpc_home_directory/helix_venv>``, repository branch: dev
+>- **Helixer:** env: ``<hpc_home_directory/helix_venv>``
 >- **deepTools:** env: ``<hpc_home_directory>/deeptools_env``
 >- **RNAsleek:** repository branch: flexi
 >- **HPC-Project:** HelixerOpt

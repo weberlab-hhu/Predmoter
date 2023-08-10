@@ -1,11 +1,34 @@
 # Predmoter 
-Predict ATAC- and ChIP-seq (H3K4me3) read coverage per base pair for plant species.   
+Predict promoter and enhancer associated new generation sequencing (NGS) data,
+Assay for Transposase Accessible Chromatin using sequencing (ATAC-seq) and
+histone (H3K4me3) Chromatin immunoprecipitation DNA-sequencing (ChIP-seq),
+base-wise for plant species.    
     
-## Disclaimer
+## Table of contents
+1. [Disclaimer](#1-disclaimer)
+2. [Aim](#2-aim)
+3. [Install](#3-install)
+   1. [GPU requirements](#31-gpu-requirements)
+   2. [Software requirements](#32-software-requirements)
+   3. [Installation guide](#33-installation-guide)
+      1. [Manual installation](#331-manual-installation)
+      2. [Docker/Singularity](#332-dockersingularity)
+4. [Usage](#4-usage)
+    1. [Directories](#41-directories)
+    2. [Input files](#42-input-files)
+    3. [Training](#43-training)
+       1. [Start training](#431-start-training)
+       2. [Resume training](#432-resume-training)
+       3. [Reproducibility](#433-reproducibility)
+    4. [Testing](#44-testing)
+    5. [Predicting](#45-predicting)
+5. [References](#references)
+
+## 1. Disclaimer <a id="1-disclaimer"></a>
 This software is undergoing active testing and development. Build on it at your
 own risk.   
     
-## Aim
+## 2. Aim <a id="2-aim"></a>
 Cross-species prediction of plant promoter/enhancer regions in the DNA with
 Deep Neural Networks. ATAC-seq is a technique to assess genome-wide chromatin
 accessibility (open chromatin regions) (Buenrostro et al., 2013). Regulatory
@@ -14,14 +37,14 @@ regions. The histone ChIP-seq data, specifically H3K4me3, which is primarily
 present at active genes (Santos-Rosa et al., 2002), is used to give the network
 more context, improving the ATAC-seq predictions.   
     
-## Install
-### GPU requirements
+## 3. Install <a id="3-install"></a>
+### 3.1 GPU requirements <a id="31-gpu-requirements"></a>
 For realistically sized datasets, a GPU will be necessary for acceptable performance.   
    
 The example below and all provided models should run on an Nvidia GPU with 11GB
 Memory (here a GTX 1080 Ti). The CPU used was E5-2640v4 (Broadwell).   
     
-### Software requirements
+### 3.2 Software requirements <a id="32-software-requirements"></a>
 The code was always run on Linux (Ubuntu).   
     
 A known conflict leading to the program failing is using the listed Pytorch
@@ -43,15 +66,15 @@ Software versions:
 - **zlib**: 1.2.11 (for pyBigWig)
 - **libcurl**: 7.52.1 (for pyBigWig)
    
-### Installation guide
-#### Manual installation
+### 3.3 Installation guide <a id="33-installation-guide"></a>
+#### 3.3.1 Manual installation <a id="331-manual-installation"></a>
 For the manual installation see
 the [manual installation instructions](docs/manual_install.md).
     
-#### Docker/Singularity
+#### 3.3.2 Docker/Singularity <a id="332-dockersingularity"></a>
 TBA
     
-## Usage
+## 4. Usage <a id="4-usage"></a>
 >**NOTE**: Please keep the output files, especially the ``predmoter.log`` file,
 > as it contains valuable information on setups, models and data you used!
     
@@ -60,7 +83,7 @@ For a list of all Predmoter options see the
 For detailed information about performance see the
 [performance documentation](docs/performance.md).
     
-### Directories
+### 4.1 Directories <a id="41-directories"></a>
 Predmoter chooses the input files according to the directory name. You need to
 provide an input directory (``-i <input_directory>``) that contains these folders:
 - **train**: the h5 files used as training set
@@ -69,8 +92,7 @@ provide an input directory (``-i <input_directory>``) that contains these folder
 using a trained model
     
 Predicting is only possible on single files. The parameter ``-f/--filepath`` needs
-to be used instead.
-
+to be used instead. (see [Predicting](#45-predicting))
     
 ### Input files
 For more details see the [h5 file documentation](docs/h5_files.md).     
@@ -84,7 +106,7 @@ data. They consist of two major components:
 The input files are created using Helixer (https://github.com/weberlab-hhu/Helixer):   
 ```bash
 # create genome h5 file
-python3 fasta2h5.py --species <generic_name>_<specific_name> \
+fasta2h5.py --species <generic_name>_<specific_name> \
 --h5-output-path <species>.h5 --fasta-path <path_to_genome>/<species>.fa
 
 # add the NGS (ATAC-/ChIP-seq) coverage
@@ -120,8 +142,8 @@ ATAC- and ChIP-seq data.
 > as long as they are divisible by the chosen step (stride) to the power of the
 > chosen number of CNN layers. 
     
-### Training
-#### Start training
+### 4.3 Training <a id="43-training"></a>
+#### 4.3.1 Start training <a id="431-start-training"></a>
 Training of Predmoter is of right now deterministic and reproducible. This is
 achieved by using a seed. If no seed is provided Predmoter will choose a random
 seed. The seed state is saved each epoch and included in the saved model, so
@@ -131,12 +153,13 @@ by Predmoter.
 
 ```bash
 # start training  with default parameters
-python3 Predmoter.py -i <input_directory> -o <output_directory> -m train
+Predmoter.py -i <input_directory> -o <output_directory> -m train
 # optional: --prefix <prefix> and all model configurations (cnn-layers, step, etc.)
 
 # start training with custom setup
-python3 Predmoter.py -i <input_directory> -o <output_directory> -m train --seed 1827 \
---model-type bi-hybrid --lstm-layers 2 --cnn-layers 3 -b 120 -e 60 --patience 10 --datasets atacseq h3k4me3
+Predmoter.py -i <input_directory> -o <output_directory> -m train --seed 1827 \
+--model-type bi-hybrid --lstm-layers 2 --cnn-layers 3 -b 120 -e 60 --patience 10 \
+--datasets atacseq h3k4me3
 ```
    
 Three model types are possible: a CNN, a CNN + LSTM (hybrid) and a CNN +
@@ -176,121 +199,21 @@ avg_val_accuracy, avg_train_loss and avg_train_accuracy. The loss is the
 Poisson negative log likelihood loss and the "accuracy" the Pearson correlation
 coefficient.   
     
-#### Resume training 
+#### 4.3.2 Resume training <a id="432-resume-training"></a>
 >**NOTE**: Do not move your log files, change the prefix if one was chosen
 > or select a different input or output directory when you resume the training.
 ```bash
-python3 Predmoter.py -i <input_directory> -o <output_directory> -m train \
+Predmoter.py -i <input_directory> -o <output_directory> -m train \
 --model <model_checkpoint> -resume-training -e <epochs> -b <batch_size>
 ```
     
-If the model checkpoint given is just the file name without the file path,
-Predmoter will search for the model ``output_directory/<prefix>_checkpoints/last.ckpt``.
+If no model checkpoint is given Predmoter will search for the model
+``output_directory/<prefix>_checkpoints/last.ckpt``.
 >**NOTE:** The epochs are max_epochs. So, if your model already trained for
 > 12 epochs, you define ``-e 15`` and you give it the last checkpoint as input,
 > it will only train for 3 more epochs and **not** for an additional 15!!
     
-### Testing
-Testing will be applied to all h5 files individually in input_directory/test.    
-**Outputs:**
-```raw
-<output_directory>  
-| 
-├── <prefix>_predmoter.log
-|
-└── <prefix>_test_metrics.log
-```
-The logging information will be appended to ``<prefix>_predmoter.log`` if it already
-exists.   
-If the model just used one dataset the metrics file will contain: the h5 file name,
-the ``<dataset>_avg_val_loss`` and the ``<dataset>_avg_val_accuracy``. Otherwise,
-it contains: the h5 file name, the total_avg_val_loss and accuracy and the
-avg_val_loss and accuracy for each dataset. If the given file does not contain
-target data of a given dataset the results will be NaN.   
-    
-**Command:**   
-```bash
-python3 Predmoter.py -i <input_directory> -o <output_directory> -m test \
---model <model_checkpoint> --test-batch-size <test_batch_size>
-# optional: --prefix <prefix>
-```
-     
-### Predicting
-Predictions will be applied to an individual files only.   
-> **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
-> "-" strand per read), so predictions are as well.
-    
-**Outputs:**
-```raw
-<output_directory>  
-| 
-├── <prefix>_predmoter.log
-|
-└── <input_file_basename>_prediction.h5
-```
-    
-Optionally the h5 predictions file can be converted to bigwig or bedgraph files.
-The result is one file per dataset predicted. Training and predictions are
-done on both + and - strand (essentially providing built-in data augmentation),
-as ATAC- and ChIP-seq data is usually 'unstranded' (open chromatin applies to
-both strands). Bigwig/bedgraph files are also non-strand-specific, so the average
-of the predictions for + and - strand are calculated. The file naming convention is:
-``<basename_of_input_file>_dataset_avg_strand.bw/bg.gz``. If just + or - strand is
-preferred, convert the h5 file later on using convert2coverage.py.
-     
-**Command:**   
-```bash
-# predict and convert h5 output file to coverage file directly
-python3 Predmoter.py -f <input_file> -o <output_directory> -m predict \
---model <model_checkpoint> -pb <predict_batch_size> -of bigwig
-# optional: --prefix <prefix>
-
-# convert h5 output file after prediction
-python3 convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
---basename <basename> --strand +
-```
-   
-The logging information will be appended to ``<prefix>_predmoter.log`` if it
-already exists.   
-The prediction h5 file contains:   
-```raw
-<input_file_basename>_prediction.h5
-|
-├── data  
-|     ├── seqids
-|     ├── start_ends
-|     └── species
-|
-└── prediction
-      ├── predictions
-      ├── model_name
-      └── datasets
-```
-   
-The seqids, start_ends and species arrays are taken from the input file.
-The predictions array contains the models' predictions. The metadata contains
-the models' name (including the path), as a reminder if you ever loose the log file,
-and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k4me3").   
-   
-    
-> **Warning:** Predmoter can be used on Windows by excluding the pyBigWig in the
-> requirements and commenting out the ``import pyBigWig`` in 
-> ``predmoter.utilities.converter``, as pyBigWig is only available on Linux.
-> The only coverage file output possible would then be bedgraph files.
-    
-Another helpful option to convert bigwig to bedgraph files and vice versa
-on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
-    
-```bash
-# make the binary executable
-chmod 764 bedGraphToBigWig  # converts bedgraph to bigwig
-
-# execute the binaries
-./bedGraphToBigWig in.bedGraph chrom.sizes out.bw
-./bigWigToBedGraph in.bigWig out.bedGraph
-```
-    
-## Reproducibility
+## 4.3.3 Reproducibility <a id="433-reproducibility"></a>
 Predmoter is reproducible to a point. When you choose the exact same setup (including
 input data) and train for 3 epochs or for 2 epochs and then resume for 1 epoch, the
 results (metrics) will be identical. Setups known to screw with the reproducibility
@@ -313,8 +236,112 @@ using different hardware than before.
 >   
 >Issues with non-deterministic behavior of LSTMs weren't encountered so far
 > during training of Predmoter.
+    
+### 4.4 Testing <a id="44-testing"></a>
+Testing will be applied to all h5 files individually in ``<input_directory>/test``.    
+**Outputs:**
+```raw
+<output_directory>  
+| 
+├── <prefix>_predmoter.log
+|
+└── <prefix>_test_metrics.log
+```
+The logging information will be appended to ``<prefix>_predmoter.log`` if it already
+exists.   
+If the model just used one dataset the metrics file will contain: the h5 file name,
+the ``<dataset>_avg_val_loss`` and the ``<dataset>_avg_val_accuracy``. Otherwise,
+it contains: the h5 file name, the total_avg_val_loss and accuracy and the
+avg_val_loss and accuracy for each dataset. If the given file does not contain
+target data of a given dataset the results will be NaN.   
+    
+**Command:**   
+```bash
+Predmoter.py -i <input_directory> -o <output_directory> -m test \
+--model <model_checkpoint> -b <batch_size>
+# optional: --prefix <prefix>
+```
      
-## References
+### 4.5 Predicting <a id="45-predicting"></a>
+Predictions will be applied to an individual fasta or h5 file only.
+> **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
+> "-" strand per read), so predictions are as well. If a fasta file is used the chosen
+> ``--subsequence-length``, default 21384 base pairs, needs to be divisible by the 
+> model's step to the power of the number of CNN layers. This condition is fulfilled
+> by the provided models (TBA) and the default subsequence length.
+    
+**Command:**   
+```bash
+# predict and convert h5 output file to bigWig file directly
+Predmoter.py -f <input_file> -o <output_directory> -m predict \
+--model <model_checkpoint> -b <batch_size> -of bigwig (--species <species>)
+# optional: --prefix <prefix>, species is required for a fasta input file
+
+# convert h5 output file after prediction
+convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
+--basename <basename> --strand +
+# optional: --prefix <prefix>
+```
+    
+**Outputs:**
+```raw
+<output_directory>  
+| 
+├── <prefix>_predmoter.log
+|
+├── <input_file_basename>_<dataset>_avg_strand.bw/bg.gz
+|
+└── <input_file_basename>_prediction.h5
+```
+    
+The h5 predictions file can be converted to bigWig or bedGraph files.
+The result is one file per dataset predicted. Training and predictions are
+done on both + and - strand (essentially providing built-in data augmentation),
+as ATAC- and ChIP-seq data is usually 'unstranded' (open chromatin applies to
+both strands). BigWig/bedGraph files are also non-strand-specific, so the average
+of the predictions for + and - strand are calculated. If just + or - strand is
+preferred, convert the h5 file later on using convert2coverage.py.    
+The logging information will be appended to ``<prefix>_predmoter.log`` if it
+already exists.   
+      
+The prediction h5 file contains:   
+```raw
+<input_file_basename>_prediction.h5
+|
+├── data  
+|     ├── seqids
+|     ├── start_ends
+|     └── species
+|
+└── prediction
+      ├── predictions
+      ├── model_name
+      └── datasets
+```
+   
+The seqids, start_ends and species arrays are taken from the input file.
+The predictions array contains the models' predictions. The metadata contains
+the models' name (including the path), as a reminder if you ever loose the log file,
+and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k4me3").
+    
+> **Warning:** Predmoter can be used on Windows by excluding the pyBigWig in the
+> requirements and commenting out the ``import pyBigWig`` in 
+> ``predmoter.utilities.converter``, as pyBigWig is only available on Linux.
+> The only coverage file output possible would then be bedGraph files.
+    
+Another helpful option to convert bigwig to bedGraph files and vice versa
+on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
+    
+```bash
+# make the binary executable
+chmod 764 bedGraphToBigWig  # converts bedGraph to bigwig
+
+# execute the binaries
+./bedGraphToBigWig in.bedGraph chrom.sizes out.bw
+./bigWigToBedGraph in.bigWig out.bedGraph
+```
+     
+## References <a id="references"></a>
 Buenrostro, J. D., Giresi, P. G., Zaba, L. C., Chang, H. Y., & Greenleaf,
 W. J. (2013). Transposition of native chromatin for fast and sensitive
 epigenomic profiling of open chromatin, DNA-binding proteins and nucleosome

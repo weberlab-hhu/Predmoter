@@ -105,7 +105,7 @@ class PredmoterParser(BaseParser):
         self.model_group.add_argument("--hidden-size", type=int, default=128, help="LSTM units per layer")
         self.model_group.add_argument("--bnorm", type=BaseParser.str2bool, default=True,
                                       help="add a batch normalization layer after each convolutional "
-                                           "and transpose convolutional layer")
+                                           "and transposed convolutional layer")
         self.model_group.add_argument("--dropout", type=float, default=0.,
                                       help="adds a dropout layer with the specified dropout value (between "
                                            "0. and 1.) after each LSTM layer except the last; if it is 0. "
@@ -202,7 +202,7 @@ class PredmoterParser(BaseParser):
             if args.model is None:
                 raise OSError(f"please specify a model checkpoint if you want to test or predict")
             if not os.path.exists(args.model):
-                raise OSError(f"did not find model path: ({args.model})")
+                raise OSError(f"could not find model path: ({args.model})")
             if not os.path.isfile(args.model):
                 raise OSError(f"model {args.model} is not a file")
 
@@ -239,6 +239,7 @@ class ConverterParser(BaseParser):
                                       "basename_dataset_strand.bw/bg.gz")
         self.parser.add_argument("--strand", type=str, default=None,
                                  help="None means the average of both strands is used, else + or - can be selected")
+        self.parser.add_argument("--prefix", type=str, default=None, help="prefix for log file")
 
     def check_args(self, args):
         if not os.path.exists(args.input_file):
@@ -257,3 +258,5 @@ class ConverterParser(BaseParser):
             f"valid output formats are bigwig (bw) and bedgraph (bg) not {args.output_format}"
 
         assert args.strand in ["+", "-", None], f"valid strand is either +, - or None not {args.strand}"
+
+        args.prefix = f"{args.prefix}_" if args.prefix is not None else ""
