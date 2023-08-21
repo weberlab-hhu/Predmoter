@@ -154,23 +154,15 @@ class LitHybridNet(pl.LightningModule):
         return self.out(x)
 
     def training_step(self, batch, batch_idx):
-        loss, acc = self.step_fn(batch)
-        metrics = {"avg_train_loss": loss, "avg_train_accuracy": acc}
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False,
-                      reduce_fx="mean", sync_dist=True)  # log for callbacks
+        loss = self.step_fn(batch, "train")
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, acc = self.step_fn(batch)
-        metrics = {"avg_val_loss": loss, "avg_val_accuracy": acc}
-        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean", sync_dist=True)
+        loss = self.step_fn(batch, "val")
         return loss
 
-    def step_fn(self, batch):
+    def step_fn(self, batch, prefix):
         X, Y = batch
-        # exclude gaps spanning an entire chunk (here, because it should work for both dataset classes)
-        mask = torch.max(X[:, :, 0], dim=1)[0] != 0.25  # mask entire N chunks
-        X, Y = X[mask], Y[mask]
         pred = self(X)
 
         # mask padding/chromosome ends
@@ -189,18 +181,12 @@ class LitHybridNet(pl.LightningModule):
 
         loss = self.poisson_nll_loss(pred, Y, is_log=True)
         acc = self.pear_coeff(pred, Y, is_log=True)
-        return loss, acc
+        metrics = {f"avg_{prefix}_loss": loss, f"avg_{prefix}_accuracy": acc}
+        self.log_dict(metrics, logger=False, on_epoch=True, on_step=False, reduce_fx="mean", sync_dist=True)
+        return loss
 
     def test_step(self, batch, batch_idx):
         X, Y = batch
-
-        # mask entire chunk gaps
-        # ------------------------------
-        mask = torch.max(X[:, :, 0], dim=1)[0] != 0.25  # mask entire N chunks
-        X, Y = X[mask], Y[mask]
-        if len(X) == 0:
-            return
-
         pred = self(X)
 
         # retrieve the dataset's dataset(s) from the one test dataloader
@@ -217,7 +203,7 @@ class LitHybridNet(pl.LightningModule):
 
         # calculate individual and total metrics
         # -------------------------------------------------
-        metrics = {}
+        metrics = {}  # type: dict
 
         indices = [self.datasets.index(a) for a in avail_datasets]
         idxs = [i for i in range(len(avail_datasets))]

@@ -79,10 +79,13 @@ class PredmoterSequence(Dataset):
             for i in range(0, len(h5df["data/X"]), n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 if self.type_ != "predict":
+                    mask = np.max(X[:, :, 0], axis=1) != 0.25  # mask entire N chunks
+                    X = X[mask]
                     Y = []
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=self.y_dtype)
+                            y = y[mask]
                             y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 2 digits
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
@@ -138,79 +141,66 @@ class PredmoterSequence2(Dataset):
         self.seq_len = seq_len
         if type_ != "test":
             rank_zero_info(f"Creating {self.type_} dataset...")
-        self.chunks = self.compute_chunks()
+        self.coords = self.get_coords()
 
     def __getitem__(self, idx):
-        i, j = self.get_coords(idx, self.chunks)
+        i, j = self.coords[idx]
         h5df = h5py.File(self.h5_files[i], "r")
-        # dtype=int8 for X to convert N=[0.25, 0.25, 0.25, 0.25] to [0, 0, 0, 0]
-        # this is necessary for masking during training
-        if self.type_ == "predict":
-            return torch.from_numpy(h5df["data/X"][j]).float()
-        return torch.from_numpy(h5df["data/X"][j]).float(), self.create_y(h5df, j)
+        return self.create_data(h5df, j)
 
     def __len__(self):
-        return self.chunks[-1]
+        return self.coords.shape[0]
 
-    def compute_chunks(self):
-        """Computes the chunks of each h5 file by summing them up.
+    def get_coords(self):
+        """Get array of file and chunk indices to pick from. For train/val/test data
+        entire gap chunks (chunks just containing Ns) are filtered out beforehand.
 
-        Example:
-            - h5 file 1: 25 chunks
-            - h5 file 2: 10 chunks
-            - h5 file 3: 12 chunks
-            chunks tensor: [25, 35, 47]
-
-        The chunks are summed up for each file, this is important for calculating the correct indices
-        of the chunk to read from the h5 file directly per get_item call.
+        Returns: numpy array of shape (dataset_lengths, 2) where the first column contains
+        the index of the h5 file to read and the second the index of the chunk to load.
         """
-        chunks = []
-        chunk_count = 0
-        log_table(log, ["H5 files", "Chunks", "NGS datasets"], spacing=20, header=True, rank_zero=True)  # logging
-        for file in self.h5_files:
-            h5df = h5py.File(file, "r")
-            count = h5df["data/X"].shape[0]
+        main_start = time.time()
+        log_table(log, ["H5 files", "Chunks", "NGS datasets", "Loading time (min)"],
+                  spacing=20, header=True, rank_zero=True)  # logging
+        coords = np.empty((0, 2), dtype=int)
+        for i, h5_file in enumerate(self.h5_files):
+            file_start = time.time()
+            h5df = h5py.File(h5_file, "r")
             if h5df["data/X"].shape[1] != self.seq_len:
                 # in case of train/val/test data, just one predict file allowed
                 raise ValueError(f"all {self.type_} input files need to have the same sequence "
                                  f"length, here: {self.seq_len}")
-            # logging
-            # -------
+            indices = np.arange(len(h5df["data/X"]))
+
             if self.type_ != "predict":
+                n = MAX_VALUES_IN_RAM // self.seq_len
+                mask = np.array([], dtype=int)
+                for j in range(0, len(h5df["data/X"]), n):
+                    X = np.array(h5df["data/X"][j:j + n])
+                    mask = np.append(mask, (np.where(np.max(X[:, :, 0], axis=1) == 0.25)[0] + j))
+                indices = np.delete(indices, mask)
                 num_ngs_dsets = sum([f"{dset}_coverage" in h5df["evaluation"].keys() for dset in self.dsets])
+                log_table(log, [file_stem(h5_file), indices.shape[0], num_ngs_dsets,
+                                round((time.time() - file_start) / 60, ndigits=2)], spacing=20, rank_zero=True)
             else:
-                num_ngs_dsets = "/"
-            log_table(log, [file_stem(file), count, num_ngs_dsets], spacing=20, rank_zero=True)
-            # -------
-            chunk_count += count
-            chunks.append(chunk_count)
+                log_table(log, [file_stem(h5_file), indices.shape[0], "/", "/"], spacing=20, rank_zero=True)
+            coords = np.append(coords, np.concatenate([np.full((indices.shape[0], 1), fill_value=i),
+                                                       indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
         # logging end
         # -----------
         if len(self.h5_files) > 1:
-            log_table(log, [f"all {len(self.h5_files)} files", chunks[-1], "/"],
+            log_table(log, [f"all {len(self.h5_files)} files", coords.shape[0], "/",
+                            round((time.time() - main_start) / 60, ndigits=2)],
                       spacing=20, table_end=True, rank_zero=True)
         else:
             rank_zero_info("\n", simple=True)
-        return np.array(chunks)
+        return coords
 
-    @staticmethod
-    def get_coords(idx, chunk_array):
-        """Converting one index to the coordinates of a chunk in a specific h5 file.
-
-        Example:
-            - chunks tensor: [25, 35, 47]
-            - idx 33
-        The batch sampler wants the 33rd chunk of the dataset. This chunk is the 9th chunk (index 8)
-        of the second h5 file (index 1 in the h5_files list). This function returns then (1, 8). The
-        first index denotes the h5 file to choose, the second one the chunk inside that h5 file.
-        """
-        if idx < chunk_array[0]:  # in case the chunk is in the first file
-            return 0, idx
-        chunk_tensor = chunk_array[chunk_array <= idx]
-        return len(chunk_tensor), (idx - np.max(chunk_tensor))
-
-    def create_y(self, h5df, idx):
+    def create_data(self, h5df, idx):
         """Create the correct Y array/tensor the exact same way as in PredmoterSequence."""
+        X = torch.from_numpy(h5df["data/X"][idx]).float()
+        if self.type_ == "predict":
+            return X
+
         Y = []
         for key in self.dsets:
             if f"{key}_coverage" in h5df["evaluation"].keys():
@@ -219,7 +209,7 @@ class PredmoterSequence2(Dataset):
                 Y.append(y)
             else:
                 Y.append(torch.full((self.seq_len,), -3).float())
-        return torch.stack(Y, dim=1)
+        return X, torch.stack(Y, dim=1)
 
 
 def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient):

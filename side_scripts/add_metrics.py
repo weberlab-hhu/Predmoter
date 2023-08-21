@@ -42,7 +42,8 @@ def main(h5_file, keys, metrics, overwrite):
                 assert f"{key}_coverage" in h5df["evaluation"].keys(), f"there is no {key}" \
                                                                        f" dataset in {h5_file.split('/')[-1]}"
                 print("adding {}s of {} to {}".format(metric, key, h5_file.split("/")[-1]))
-                h5df.create_dataset(f"evaluation/{key}_{metric}s", shape=(len(h5df[f"{key}_meta"]["bam_files"]),),
+                h5df.create_dataset(f"evaluation/{key}_{metric}s",
+                                    shape=(len(h5df[f"evaluation/{key}_meta"]["bam_files"]),),
                                     maxshape=(None,), dtype=float, data=get_metric(h5df, metric, key))
 
     h5df.close()

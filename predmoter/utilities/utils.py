@@ -200,6 +200,6 @@ def init_model(args, seq_len, bases, load_from_checkpoint: bool):  # args = Pred
                              args.bnorm, args.dropout, args.learning_rate, seq_len, input_size=bases,
                              output_size=len(args.datasets), datasets=args.datasets)
 
-    rank_zero_info(f"\n\nModel summary (model type: {model.model_type})"
+    rank_zero_info(f"\n\nModel summary (model type: {model.model_type}, dropout: {model.dropout})"
                    f"\n{ModelSummary(model=model, max_depth=-1)}\n")
     return model
