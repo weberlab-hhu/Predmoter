@@ -59,6 +59,7 @@ class Timeit(Callback):
         epochs = self.max_epoch - trainer.current_epoch
         self.divide = epochs // 5 if epochs > 10 else 1
         self.start = time.time()
+        log.info("")
         log_table(log, ["Epoch", "Total duration (min)", "Duration per epoch (min)"], spacing=24, header=True)
 
     @rank_zero_only

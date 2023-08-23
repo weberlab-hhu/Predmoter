@@ -76,11 +76,13 @@ class PredmoterSequence(Dataset):
                                  f"length, here: {self.seq_len}")
             n = MAX_VALUES_IN_RAM // self.seq_len  # dynamic step for different sequence lengths
             mem_size, chunks = 0, 0
-            for i in range(0, len(h5df["data/X"]), n):  # read in chunks for saving memory (RAM)
+            for i in range(0, h5df["data/X"].shape[0], n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 if self.type_ != "predict":
                     mask = np.max(X[:, :, 0], axis=1) != 0.25  # mask entire N chunks
                     X = X[mask]
+                    if X.shape[0] == 0:  # very unlikely, but just in case
+                        continue
                     Y = []
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
@@ -159,7 +161,7 @@ class PredmoterSequence2(Dataset):
         the index of the h5 file to read and the second the index of the chunk to load.
         """
         main_start = time.time()
-        log_table(log, ["H5 files", "Chunks", "NGS datasets", "Loading time (min)"],
+        log_table(log, ["H5 files", "Chunks", "NGS datasets", "Processing time (min)"],
                   spacing=20, header=True, rank_zero=True)  # logging
         coords = np.empty((0, 2), dtype=int)
         for i, h5_file in enumerate(self.h5_files):
@@ -169,22 +171,25 @@ class PredmoterSequence2(Dataset):
                 # in case of train/val/test data, just one predict file allowed
                 raise ValueError(f"all {self.type_} input files need to have the same sequence "
                                  f"length, here: {self.seq_len}")
-            indices = np.arange(len(h5df["data/X"]))
 
             if self.type_ != "predict":
                 n = MAX_VALUES_IN_RAM // self.seq_len
-                mask = np.array([], dtype=int)
-                for j in range(0, len(h5df["data/X"]), n):
+                chunks = 0
+                for j in range(0, h5df["data/X"].shape[0], n):
                     X = np.array(h5df["data/X"][j:j + n])
-                    mask = np.append(mask, (np.where(np.max(X[:, :, 0], axis=1) == 0.25)[0] + j))
-                indices = np.delete(indices, mask)
+                    indices = np.where(np.max(X[:, :, 0], axis=1) != 0.25)[0] + j
+                    chunks += indices.shape[0]
+                    coords = np.append(coords, np.concatenate([np.full((indices.shape[0], 1), fill_value=i),
+                                                               indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
                 num_ngs_dsets = sum([f"{dset}_coverage" in h5df["evaluation"].keys() for dset in self.dsets])
-                log_table(log, [file_stem(h5_file), indices.shape[0], num_ngs_dsets,
+                log_table(log, [file_stem(h5_file), chunks, num_ngs_dsets,
                                 round((time.time() - file_start) / 60, ndigits=2)], spacing=20, rank_zero=True)
             else:
-                log_table(log, [file_stem(h5_file), indices.shape[0], "/", "/"], spacing=20, rank_zero=True)
-            coords = np.append(coords, np.concatenate([np.full((indices.shape[0], 1), fill_value=i),
-                                                       indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
+                coords = np.concatenate([np.full((h5df["data/X"].shape[0], 1), fill_value=i),
+                                         np.arange(h5df["data/X"].shape[0]).reshape(h5df["data/X"].shape[0], 1)],
+                                        axis=1)
+                log_table(log, [file_stem(h5_file), h5df["data/X"].shape[0], "/", "/"], spacing=20, rank_zero=True)
+
         # logging end
         # -----------
         if len(self.h5_files) > 1:

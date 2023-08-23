@@ -236,7 +236,7 @@ class LitHybridNet(pl.LightningModule):
 
         # since the network's predictions are logarithmic, torch.exp() is needed
         preds = torch.exp(self(batch))
-        preds[mask] = -1.  # -1 as filler for padding/Ns
+        preds[mask] = -1.  # -1 as filler for padding
 
         return preds
 

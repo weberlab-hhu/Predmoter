@@ -4,8 +4,10 @@ import logging
 import logging.config
 import tempfile
 import torch
+import datetime
 from torch.utils.data import DataLoader
 import lightning.pytorch as pl
+from lightning.pytorch.strategies import DDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
 from predmoter.core.constants import PREDMOTER_VERSION
@@ -176,7 +178,7 @@ def main():
     # Predmoter start
     # --------------------------------
     pin_mem = True if args.device == "gpu" else False
-    strategy = "ddp" if args.num_devices > 1 else "auto"  # auto is the default in pl.Trainer()
+    strategy = DDPStrategy(timeout=datetime.timedelta(seconds=5400)) if args.num_devices > 1 else "auto"
 
     if args.mode == "train":
         train(args, h5_data, seq_len, bases, pin_mem, strategy)
