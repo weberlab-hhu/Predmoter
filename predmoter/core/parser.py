@@ -83,6 +83,8 @@ class PredmoterParser(BaseParser):
         self.config_group.add_argument("--ram-efficient", type=BaseParser.str2bool, default=True,
                                        help="if true will use RAM efficient data class (see docs/performance.md), "
                                             "Warning: Don't move the input data while Predmoter is running.")
+        self.config_group.add_argument("-bl", "--blacklist", action="store_true",
+                                       help="mask blacklisted regions in data/blacklist (if it exists)")
 
         self.model_group = self.parser.add_argument_group("Model parameters")
         self.model_group.add_argument("--model-type", type=str.lower, default="bi-hybrid",

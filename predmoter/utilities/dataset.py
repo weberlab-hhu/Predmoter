@@ -14,7 +14,7 @@ log = logging.getLogger("PredmoterLogger")
 
 
 class PredmoterSequence(Dataset):
-    def __init__(self, h5_files, type_, dsets, seq_len):
+    def __init__(self, h5_files, type_, dsets, seq_len, blacklist):
         super().__init__()
         self.compressor = numcodecs.blosc.Blosc(cname="blosclz", clevel=9, shuffle=2)
         self.h5_files = h5_files
@@ -23,6 +23,7 @@ class PredmoterSequence(Dataset):
         self.total_mem_size = []
         self.dsets = dsets
         self.seq_len = seq_len
+        self.blacklist = blacklist
         self.x_dtype = np.float16
         self.y_dtype = np.float32
         self.bases = h5py.File(h5_files[0], mode="r")["data/X"].shape[-1]
@@ -50,7 +51,9 @@ class PredmoterSequence(Dataset):
         be size is filled with -3 to ensure that the datasets don't get shifted/that they can be
         concatenated. If just one dataset is chosen, then the file is skipped entirely
         (see utils: get_h5_data). For predictions just the DNA data (X) is read in. The experimental
-        data (Y) is averaged (average of bam file tracks/replicates).
+        data (Y) is averaged (average of bam file tracks/replicates). For train/val/test data
+        entire gap chunks (chunks just containing Ns) are filtered out beforehand. If blacklisting is
+        applied chunks in data/blacklist marked as False are excluded (see side_scripts/add_blacklist.py).
         """
 
         # Start logging
@@ -76,13 +79,21 @@ class PredmoterSequence(Dataset):
                                  f"length, here: {self.seq_len}")
             n = MAX_VALUES_IN_RAM // self.seq_len  # dynamic step for different sequence lengths
             mem_size, chunks = 0, 0
+            blacklist = self.blacklist and "blacklist" in h5df["data"].keys()  # bool
             for i in range(0, h5df["data/X"].shape[0], n):  # read in chunks for saving memory (RAM)
                 X = np.array(h5df["data/X"][i:i + n], dtype=self.x_dtype)
                 if self.type_ != "predict":
-                    mask = np.max(X[:, :, 0], axis=1) != 0.25  # mask entire N chunks
+                    # masking
+                    # -----------------
+                    if blacklist:
+                        mask = np.logical_and(np.max(X[:, :, 0], axis=1) != 0.25,
+                                              np.array(h5df["data/blacklist"][i:i + n], dtype=bool))
+                    else:
+                        mask = np.max(X[:, :, 0], axis=1) != 0.25  # mask entire N chunks
                     X = X[mask]
                     if X.shape[0] == 0:  # very unlikely, but just in case
                         continue
+                    # ------------------
                     Y = []
                     for key in self.dsets:
                         if f"{key}_coverage" in h5df["evaluation"].keys():
@@ -135,12 +146,13 @@ class PredmoterSequence(Dataset):
 
 
 class PredmoterSequence2(Dataset):
-    def __init__(self, h5_files, type_, dsets, seq_len):
+    def __init__(self, h5_files, type_, dsets, seq_len, blacklist):
         super().__init__()
         self.h5_files = h5_files
         self.type_ = type_
         self.dsets = dsets
         self.seq_len = seq_len
+        self.blacklist = blacklist
         if type_ != "test":
             rank_zero_info(f"Creating {self.type_} dataset...")
         self.coords = self.get_coords()
@@ -155,7 +167,9 @@ class PredmoterSequence2(Dataset):
 
     def get_coords(self):
         """Get array of file and chunk indices to pick from. For train/val/test data
-        entire gap chunks (chunks just containing Ns) are filtered out beforehand.
+        entire gap chunks (chunks just containing Ns) are filtered out beforehand. If
+        blacklisting is applied chunks in data/blacklist marked as False are excluded
+        (see side_scripts/add_blacklist.py). (see PredmoterSequence for more details)
 
         Returns: numpy array of shape (dataset_lengths, 2) where the first column contains
         the index of the h5 file to read and the second the index of the chunk to load.
@@ -175,9 +189,15 @@ class PredmoterSequence2(Dataset):
             if self.type_ != "predict":
                 n = MAX_VALUES_IN_RAM // self.seq_len
                 chunks = 0
+                blacklist = self.blacklist and "blacklist" in h5df["data"].keys()  # bool
                 for j in range(0, h5df["data/X"].shape[0], n):
                     X = np.array(h5df["data/X"][j:j + n])
-                    indices = np.where(np.max(X[:, :, 0], axis=1) != 0.25)[0] + j
+                    indices = np.where(np.max(X[:, :, 0], axis=1) != 0.25)[0]
+                    if blacklist:
+                        mask = np.array(h5df["data/blacklist"][j:j + n], dtype=bool)
+                        indices = indices[mask[indices]] + j  # only mask existing indices
+                    else:
+                        indices = indices + j
                     chunks += indices.shape[0]
                     coords = np.append(coords, np.concatenate([np.full((indices.shape[0], 1), fill_value=i),
                                                                indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
@@ -217,7 +237,7 @@ class PredmoterSequence2(Dataset):
         return X, torch.stack(Y, dim=1)
 
 
-def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient):
+def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
     """Choose between two dataset classes.
 
     There are two dataset classes, that can be used by Predmoter:
@@ -226,15 +246,15 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient):
             - argument: ``--ram-efficient false`` (default)
             - compresses all data and stores it in RAM
             - takes time, depending on the dataset size a significant amount of time,
-              (the longest tested around 2h), before training to process all the data
+              (the longest tested around 1.5 h), before training to process all the data
             - the data processing time is multiplied by the number of devices used to train on
             - training is faster afterwards, since the data was already processed
 
         2. PredmoterSequence2:
             - argument: ``--ram-efficient true``
             - reads data directly from the hard-drive/file for each chunk
-            - takes no time before the training to process the data
-            - slows down training as the data is always reprocessed at each get_item call
+            - takes less time (the longest tested around 15 min) before the training to process the data
+            - slows down training a bit as the data is always reprocessed at each get_item call
             - extremely RAM efficient
             - Warning: Don't move the input data while Predmoter is running.
 
@@ -242,5 +262,5 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient):
     """
     # mention test/predict behavior
     if ram_efficient:
-        return PredmoterSequence2(h5_files, type_, dsets, seq_len)
-    return PredmoterSequence(h5_files, type_, dsets, seq_len)
+        return PredmoterSequence2(h5_files, type_, dsets, seq_len, blacklist)
+    return PredmoterSequence(h5_files, type_, dsets, seq_len, blacklist)

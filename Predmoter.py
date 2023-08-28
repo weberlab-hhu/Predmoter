@@ -58,12 +58,12 @@ def train(args, input_data, seq_len, bases, pin_mem, strategy):
 
     # Training
     # ----------------------
-    train_loader = DataLoader(get_dataset(input_data["train"], "train", args.datasets, seq_len, args.ram_efficient),
-                              batch_size=args.batch_size, shuffle=True, pin_memory=pin_mem,
-                              num_workers=args.num_workers)
-    val_loader = DataLoader(get_dataset(input_data["val"], "val", args.datasets, seq_len, args.ram_efficient),
-                            batch_size=args.batch_size, shuffle=False, pin_memory=pin_mem,
-                            num_workers=args.num_workers)
+    train_loader = DataLoader(get_dataset(input_data["train"], "train", args.datasets, seq_len,
+                                          args.ram_efficient, args.blacklist), batch_size=args.batch_size,
+                              shuffle=True, pin_memory=pin_mem, num_workers=args.num_workers)
+    val_loader = DataLoader(get_dataset(input_data["val"], "val", args.datasets, seq_len,
+                                        args.ram_efficient, args.blacklist), batch_size=args.batch_size,
+                            shuffle=False, pin_memory=pin_mem, num_workers=args.num_workers)
     rank_zero_info(f"Training started. Training on {args.num_devices} device(s). "
                    f"Resuming training: {args.resume_training}.")
     if args.resume_training:
@@ -93,9 +93,9 @@ def test(args, input_data, seq_len, pin_mem, strategy):
     for file in input_data:
         # only use available datasets to load the test data, otherwise more RAM/computing time will be used
         avail_datasets = get_available_datasets(file, args.datasets)
-        test_loader = DataLoader(get_dataset([file], "test", avail_datasets, seq_len, args.ram_efficient),
-                                 batch_size=args.batch_size, shuffle=False,
-                                 pin_memory=pin_mem, num_workers=args.num_workers)
+        test_loader = DataLoader(get_dataset([file], "test", avail_datasets, seq_len,
+                                             args.ram_efficient, args.blacklist), batch_size=args.batch_size,
+                                 shuffle=False, pin_memory=pin_mem, num_workers=args.num_workers)
         trainer.test(model=hybrid_model, dataloaders=test_loader, verbose=False)
     rank_zero_info("Testing ended.")
 
@@ -129,7 +129,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
 
     # Predicting
     # ----------------------
-    predict_loader = DataLoader(get_dataset(input_data, "predict", None, seq_len, args.ram_efficient),
+    predict_loader = DataLoader(get_dataset(input_data, "predict", None, seq_len, args.ram_efficient, args.blacklist),
                                 batch_size=args.batch_size, shuffle=False,
                                 pin_memory=pin_mem, num_workers=args.num_workers)
     rank_zero_info("Predicting started.")
