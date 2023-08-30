@@ -112,8 +112,9 @@ def get_h5_data(input_dir, mode, dsets):
                                    f"h5 files are expected to have the extension .h5"
         # check individual h5 files
         skip_files = []
+        indices = []
         dset_counter = Counter()
-        for file in h5_files:
+        for i, file in enumerate(h5_files):
             try:
                 h5py.File(file, "r")
             except OSError as e:
@@ -122,7 +123,9 @@ def get_h5_data(input_dir, mode, dsets):
             dset_counter.update(available_datasets)
             if len(available_datasets) == 0:
                 skip_files.append(file_stem(file))
-                h5_files.remove(file)
+            else:
+                indices.append(i)
+        h5_files = [h5_files[idx] for idx in indices]
         # after excluding files not having the specified datasets (either from a model
         # checkpoint or user defined), make sure there are files left
         assert len(h5_files) >= 1, f"no {type_} data available: none of the {type_} h5 files contain " \

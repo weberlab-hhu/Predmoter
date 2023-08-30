@@ -178,7 +178,7 @@ def main():
     # Predmoter start
     # --------------------------------
     pin_mem = True if args.device == "gpu" else False
-    strategy = DDPStrategy(timeout=datetime.timedelta(seconds=5400)) if args.num_devices > 1 else "auto"
+    strategy = DDPStrategy(timeout=datetime.timedelta(seconds=7200)) if args.num_devices > 1 else "auto"
 
     if args.mode == "train":
         train(args, h5_data, seq_len, bases, pin_mem, strategy)
