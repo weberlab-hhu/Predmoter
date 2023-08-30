@@ -140,8 +140,8 @@ def get_h5_data(input_dir, mode, dsets):
                                      f"please only choose datasets that are available in your {type_} set")
 
         if len(skip_files) >= 1:
-            log.info(f"The h5 file(s) {', '.join(skip_files)} don't contain the chosen/model's "
-                     f"datasets {', '.join(dsets)} and will be skipped.")
+            rank_zero_info(f"The h5 file(s) {', '.join(skip_files)} don't contain the chosen/model's "
+                           f"datasets {', '.join(dsets)} and will be skipped.")
         # add files to data if no errors occurred
         h5_files.sort()  # sort alphabetically -> keep file order for reproducibility
         h5_data[type_] = h5_files

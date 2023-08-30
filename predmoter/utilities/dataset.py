@@ -174,9 +174,10 @@ class PredmoterSequence2(Dataset):
         Returns: numpy array of shape (dataset_lengths, 2) where the first column contains
         the index of the h5 file to read and the second the index of the chunk to load.
         """
+        space = 24
         main_start = time.time()
         log_table(log, ["H5 files", "Chunks", "NGS datasets", "Processing time (min)"],
-                  spacing=20, header=True, rank_zero=True)  # logging
+                  spacing=space, header=True, rank_zero=True)  # logging
         coords = np.empty((0, 2), dtype=int)
         for i, h5_file in enumerate(self.h5_files):
             file_start = time.time()
@@ -203,19 +204,19 @@ class PredmoterSequence2(Dataset):
                                                                indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
                 num_ngs_dsets = sum([f"{dset}_coverage" in h5df["evaluation"].keys() for dset in self.dsets])
                 log_table(log, [file_stem(h5_file), chunks, num_ngs_dsets,
-                                round((time.time() - file_start) / 60, ndigits=2)], spacing=20, rank_zero=True)
+                                round((time.time() - file_start) / 60, ndigits=2)], spacing=space, rank_zero=True)
             else:
                 coords = np.concatenate([np.full((h5df["data/X"].shape[0], 1), fill_value=i),
                                          np.arange(h5df["data/X"].shape[0]).reshape(h5df["data/X"].shape[0], 1)],
                                         axis=1)
-                log_table(log, [file_stem(h5_file), h5df["data/X"].shape[0], "/", "/"], spacing=20, rank_zero=True)
+                log_table(log, [file_stem(h5_file), h5df["data/X"].shape[0], "/", "/"], spacing=space, rank_zero=True)
 
         # logging end
         # -----------
         if len(self.h5_files) > 1:
             log_table(log, [f"all {len(self.h5_files)} files", coords.shape[0], "/",
                             round((time.time() - main_start) / 60, ndigits=2)],
-                      spacing=20, table_end=True, rank_zero=True)
+                      spacing=space, table_end=True, rank_zero=True)
         else:
             rank_zero_info("\n", simple=True)
         return coords
