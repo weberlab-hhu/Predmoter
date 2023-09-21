@@ -162,7 +162,7 @@ def prep_predict_data(filepath):
 def fasta2h5(filepath, h5_output_path, subseq_len, multiprocess):
     """Convert fasta file to h5 file using Helixer."""
     start = time.time()
-    rank_zero_info("Converting fasta input file to h5 file.")
+    rank_zero_info(f"Converting fasta input file {filepath} to h5 file.")
     controller = HelixerFastaToH5Controller(filepath, h5_output_path)
     controller.export_fasta_to_h5(chunk_size=subseq_len, compression="gzip",
                                   multiprocess=multiprocess, species="Lorem_ipsum")

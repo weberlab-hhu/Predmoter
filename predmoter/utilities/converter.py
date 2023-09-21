@@ -6,7 +6,7 @@ import numpy as np
 import pyBigWig
 import gzip
 
-from predmoter.core.constants import MAX_VALUES_IN_RAM
+from predmoter.core.constants import GIT_COMMIT, MAX_VALUES_IN_RAM
 
 
 log = logging.getLogger("PredmoterLogger")
@@ -32,9 +32,10 @@ class Converter:
         self.last_end = None
         self.last_value = None
         start = time.time()
-        log.info(f"Starting conversion of the file {infile} to {outformat} file(s).")
+        log.info(f"\nStarting conversion of the file {infile} to {outformat} file(s). "
+                 f"The current commit is {GIT_COMMIT}.")
         self.convert()
-        log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.")
+        log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
 
     def get_output_files(self, output_dir, basename):
         """Create list of output files.

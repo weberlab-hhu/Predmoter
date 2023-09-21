@@ -10,7 +10,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.strategies import DDPStrategy
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 
-from predmoter.core.constants import PREDMOTER_VERSION
+from predmoter.core.constants import PREDMOTER_VERSION, GIT_COMMIT
 from predmoter.core.parser import PredmoterParser
 from predmoter.prediction.callbacks import SeedCallback, MetricCallback, Timeit, PredictCallback
 from predmoter.utilities.utils import get_log_dict, rank_zero_info, rank_zero_warn, get_h5_data, \
@@ -116,7 +116,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
     # Convert fasta to h5
     # ----------------------
     if temp_dir is not None:
-        h5_output = os.path.join(temp_dir, "tmpSpecies.h5")
+        h5_output = os.path.join(temp_dir, f"{args.species}.h5")
         fasta2h5(input_data[0], h5_output, seq_len, args.multiprocess)
         input_data = [h5_output]  # set input_data to converted file
 
@@ -155,7 +155,8 @@ def main():
     # ----------------------
     logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
     rank_zero_info("\n", simple=True)
-    rank_zero_info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode.")
+    rank_zero_info(f"Predmoter v{PREDMOTER_VERSION} is starting in {args.mode} mode. "
+                   f"The current commit is {GIT_COMMIT}.")
     if args.num_devices > 1 and not args.ram_efficient:
         rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs to train on results in the creation of one "
                        f"dataset for each device. The data read in time and RAM consumption will be multiplied "

@@ -229,7 +229,8 @@ class PredmoterParser(BaseParser):
 
 class ConverterParser(BaseParser):
     def __init__(self):
-        super().__init__(prog="H5toBigwig", description="write predictions in h5 format to a bigwig or bedgraph file")
+        super().__init__(prog="h5_to_coverage",
+                         description="write Predmoter predictions from h5 format to a bigWig or bedGraph file")
         self.parser.add_argument("-i", "--input-file", type=str, default=None, required=True,
                                  help="input h5 predictions file (Predmoter output)")
         self.parser.add_argument("-o", "--output-dir", type=str, default=".",

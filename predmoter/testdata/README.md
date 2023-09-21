@@ -22,7 +22,7 @@ to create the data/blacklist dataframe via
 | train_data_2   | ATAC-seq, ChIP-seq, MOA-seq | 10     | gap, padding                                     |
 | train_data_3   | MOA-seq                     | 7      | /                                                |
 | train_data_4   | ATAC-seq, ChIP-seq          | 6      | Ns in the middle                                 |
-| train_data_5   | ATAC-seq                    | 11     | gap, blacklist information                       |
+| train_data_5   | ATAC-seq                    | 11     | gap, blacklist information (``data/blacklist``)  |
 | val_data_1     | ATAC-seq, ChIP-seq          | 5      | /                                                |
 | val_data_2     | ATAC-seq, ChIP-seq, MOA-seq | 4      | /                                                |
 | val_data_3     | ATAC-seq                    | 6      | gap (Ns stretching beyond chunk border)          |
