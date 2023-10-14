@@ -28,8 +28,8 @@
 ### 4. Model parameters
 | Argument            | Explanation                                                                                                                                                                                                                  | Default   |
 |:--------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------|
-| --model-type        | the type of model to train, valid types are: cnn, hybrid (CNN + LSTM), bi-hybrid (CNN + bidirectional LSTM)                                                                                                                  | bi-hybrid |
-| --cnn-layers        | number of convolutional layers (e.g. 3 layers: 3 layer convolution and 3 layer deconvolution)                                                                                                                                | 1         |
+| --model-type        | the type of model to train, valid types are: cnn (U-Net: CNN + transposed CNN), hybrid (CNN + LSTM + transposed CNN), bi-hybrid (CNN + bidirectional LSTM + transposed CNN)                                                  | bi-hybrid |
+| --cnn-layers        | number of convolutional layers (e.g. 3 layers: 3 convolutional layers and 3 transposed convolutional layers (deconvolution))                                                                                                 | 1         |
 | --filter-size       | filter size for convolution, is scaled up per layer after the first by ``up``                                                                                                                                                | 64        |
 | --kernel-size       | kernel size for convolution                                                                                                                                                                                                  | 9         |
 | --step              | stride for convolution                                                                                                                                                                                                       | 2         |
@@ -55,11 +55,14 @@
 | --epochs/-e     | number of training runs; **Attention:** max_epochs, so when training for 2 epochs and then resuming training (``--resume-training``) for 4 additional epochs, you need ``-e 6``  | 5                |
 
 ## Convert to coverage
-| Argument            | Explanation                                                                                         | Default           |
-|:--------------------|:----------------------------------------------------------------------------------------------------|:------------------|
-| --input-file/-i     | **required**, input h5 predictions file (Predmoter output)                                          | /                 |
-| --output-dir/-o     | output directory for all converted files                                                            | current directory |
-| --output-format/-of | output format for predictions (valid: bigwig (bw), bedgraph (bg))                                   | bigwig            |
-| --basename          | **required**, basename of the output files, naming convention: ``basename_dataset_strand.bw/bg.gz`` | /                 |
-| --strand            | if not specified the average of both strands is used, else + or - can be selected                   | avg               |
-| --prefix            | prefix for log file                                                                                 | /                 |
+| Argument            | Explanation                                                                                                                                                                | Default           |
+|:--------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------|
+| --input-file/-i     | **required**, input h5 predictions file (Predmoter output)                                                                                                                 | /                 |
+| --output-dir/-o     | output directory for all converted files                                                                                                                                   | current directory |
+| --output-format/-of | output format for predictions (valid: bigwig (bw), bedgraph (bg))                                                                                                          | bigwig            |
+| --basename          | **required**, basename of the output files, naming convention: ``basename_dataset_strand.bw/bg.gz``                                                                        | /                 |
+| --strand            | if not specified the average of both strands is used, else + or - can be selected                                                                                          | avg               |
+| --prefix            | prefix for log file                                                                                                                                                        | /                 |
+| --experimental      | add to convert the mean experimental coverage of a experimental h5 instead of predictions                                                                                  | /                 |
+| --datasets          | the dataset prefix(es) to convert when --experimental is set                                                                                                               | None              |
+| --blacklist-file    | text file of chromosomes/sequences that should not be included in the conversion, e.g. chloroplast or mitochondrial sequences; one chromosome ID per line in the text file | None              |

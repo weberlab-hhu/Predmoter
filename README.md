@@ -21,7 +21,7 @@ base-wise for plant species.
        2. [Resume training](#432-resume-training)
        3. [Reproducibility](#433-reproducibility)
     4. [Testing](#44-testing)
-    5. [Predicting](#45-predicting)
+    5. [Inference](#45-inference)
 5. [References](#references)
 
 ## 1. Disclaimer <a id="1-disclaimer"></a>
@@ -262,7 +262,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 # optional: --prefix <prefix>
 ```
      
-### 4.5 Predicting <a id="45-predicting"></a>
+### 4.5 Inference <a id="45-inference"></a>
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
 > "-" strand per read), so predictions are as well. If a fasta file is used the chosen
@@ -329,7 +329,7 @@ and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k
 > ``predmoter.utilities.converter``, as pyBigWig is only available on Linux.
 > The only coverage file output possible would then be bedGraph files.
     
-Another helpful option to convert bigwig to bedGraph files and vice versa
+Another helpful option to convert bigWig to bedGraph files and vice versa
 on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
     
 ```bash
@@ -339,6 +339,17 @@ chmod 764 bedGraphToBigWig  # converts bedGraph to bigwig
 # execute the binaries
 ./bedGraphToBigWig in.bedGraph chrom.sizes out.bw
 ./bigWigToBedGraph in.bigWig out.bedGraph
+```
+
+It is also possible to call peaks from the bedGraph track with MACS (Zhang et al. 2008):
+```bash
+# ATAC-seq peak calling example
+macs3 bdgpeakcall -i <atac_seq.bg> -o <output.bed> --min-length 100 --max-gap 20 --cutoff 25
+# since the Predmoter bedgraph files are coverage tracks the cutoff needs to be higher
+# than the MACS default which assumes MACS scores
+
+# ChIP-seq peak calling example
+macs3 bdgbroadcall -i <chip_seq.bg> -o <output.bed> -c 35 -C 15 -G 500
 ```
      
 ## References <a id="references"></a>
@@ -351,3 +362,8 @@ Santos-Rosa, H., Schneider, R., Bannister, A. J., Sherriff, J., Bernstein, B. E.
 Emre, N. C. T., Schreiber, S. L., Mellor, J., & Kouzarides, T. (2002).
 Active genes are tri-methylated at K4 of histone H3. Nature, 419(6905), 407–411.
 https://doi.org/10.1038/nature01080   
+
+Zhang, Y., Liu, T., Meyer, C. A., Eeckhoute, J., Johnson, D. S.,
+Bernstein, B. E., Nussbaum, C., Myers, R. M., Brown, M., Li, W., Shirley, X. S. (2008).
+Model-Based Analysis of ChIP-Seq (MACS). Genome Biology, 9(9) , 1–9.
+https://doi.org/10.1186/GB-2008-9-9-R137

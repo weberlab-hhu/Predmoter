@@ -13,7 +13,8 @@ log = logging.getLogger("PredmoterLogger")
 
 
 class Converter:
-    def __init__(self, infile, output_dir, outformat, basename, strand):
+    def __init__(self, infile, output_dir, outformat, basename, strand, experimental=False,
+                 dsets=None, bl_chroms=None):
         super(Converter, self).__init__()
         self.infile = h5py.File(infile, "r")
         self.output_format = "bw" if outformat in ["bw", "bigwig"] else "bg.gz"
@@ -23,16 +24,25 @@ class Converter:
                 "arrays can be used in the creation of bigwig files, but this " \
                 "doesn't seem to be the case here"
         self.strand = strand
-        self.dsets = [dset.decode() for dset in self.infile["prediction/datasets"][:]]
+        if experimental:
+            self.dsets = dsets
+        else:
+            self.dsets = [dset.decode() for dset in self.infile["prediction/datasets"][:]]
         self.outfiles = self.get_output_files(output_dir, basename)
-        self.seq_len = self.infile["prediction/predictions"][:1].shape[1]
-        self.chromosome_map = self.chrom_map(self.infile)
+        if experimental:
+            self.seq_len = self.infile["data/X"][:1].shape[1]
+        else:
+            self.seq_len = self.infile["prediction/predictions"][:1].shape[1]
+        self.blacklisted_chromosomes = bl_chroms if bl_chroms is None else np.loadtxt(bl_chroms, dtype=str, usecols=0)
+        self.chromosome_map = self.chrom_map(self.infile, self.blacklisted_chromosomes)
         self.last_chromosome = list(self.chromosome_map.keys())[-1]
         self.last_start = None
         self.last_end = None
         self.last_value = None
+        self.experimental = experimental
         start = time.time()
-        log.info(f"\nStarting conversion of the file {infile} to {outformat} file(s). "
+        log.info("\n", extra={"simple": True})
+        log.info(f"Starting conversion of the file {infile} to {outformat} file(s). "
                  f"The current commit is {GIT_COMMIT}.")
         self.convert()
         log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
@@ -50,13 +60,13 @@ class Converter:
             filename = f"{basename}_{dset}_{strand}_strand.{self.output_format}"
             outfile = os.path.join(output_dir, filename)
             if os.path.exists(outfile):
-                raise OSError(f"the predictions output file {filename} "
+                raise OSError(f"the output file {filename} "
                               f"exists in {output_dir}, please move or delete it")
             outfiles.append(outfile)
         return outfiles
 
     @staticmethod
-    def chrom_map(h5_file):
+    def chrom_map(h5df, bl_chroms):
         """Create a 'map' of the chromosome order in the h5 file.
 
         Example:
@@ -71,16 +81,20 @@ class Converter:
         For each chromosome the length (end) in bp and the indices of the positive and negative
         strand are listed.
         """
-        chromosome_map = dict.fromkeys(h5_file["data/seqids"][:])
+        chromosome_map = dict.fromkeys(h5df["data/seqids"][:])
+
+        if bl_chroms is not None:
+            for chrom in bl_chroms:
+                chromosome_map.pop(chrom.encode())
 
         for c in chromosome_map:
-            idxs = np.where(h5_file["data/seqids"][:] == c)[0].astype(dtype=np.int32)
+            idxs = np.where(h5df["data/seqids"][:] == c)[0].astype(dtype=np.int32)
             # if the first coordinate in start_ends is smaller than the second, it's a chunk
             # from the positive strand, else it's a chunk from the negative strand
-            pos = idxs[~np.greater(h5_file["data/start_ends"][idxs, 0], h5_file["data/start_ends"][idxs, 1])]
+            pos = idxs[~np.greater(h5df["data/start_ends"][idxs, 0], h5df["data/start_ends"][idxs, 1])]
             # flip negative strand, because the values need to be added in reverse
-            neg = np.flipud(idxs[np.greater(h5_file["data/start_ends"][idxs, 0], h5_file["data/start_ends"][idxs, 1])])
-            chromosome_map[c] = {"end": np.max(h5_file["data/start_ends"][idxs]), "+": pos, "-": neg}
+            neg = np.flipud(idxs[np.greater(h5df["data/start_ends"][idxs, 0], h5df["data/start_ends"][idxs, 1])])
+            chromosome_map[c] = {"end": np.max(h5df["data/start_ends"][idxs]), "+": pos, "-": neg}
         return chromosome_map
 
     def convert(self):
@@ -169,7 +183,13 @@ class Converter:
         gets flipped vertically, e.g. [8, 2, 1] -> [1, 2, 8]. If it's the last iteration of the
         chromosome indices (containing the last chunk) of the negative strand, a custom flip is used.
         """
-        array = np.array(self.infile["prediction/predictions"][strand_idxs, :, dset_idx], dtype=np.float32).flatten()
+        if self.experimental:
+            dset = self.dsets[dset_idx]
+            array = np.array(self.infile[f"evaluation/{dset}_coverage"][strand_idxs], dtype=np.float32)
+            array = np.around(np.mean(array, axis=2), 0).flatten()
+        else:
+            array = np.array(self.infile["prediction/predictions"][strand_idxs, :, dset_idx],
+                             dtype=np.float32).flatten()
         if is_negative:
             if is_last:
                 # start padding: e.g. start_ends[strand_idxs[0]] = [102642, 85536], np.diff: -17106
@@ -233,6 +253,3 @@ class Converter:
                 starts = np.append(starts, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1) + 1, 0, 0)])
                 ends = np.append(ends, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1), 0, -1)] + 1)
         return np.sort(starts), np.sort(ends)
-
-# round doesn't work as expected in numpy (statistician’s rounding),
-# so maybe correct it in PredictCallback and Converter

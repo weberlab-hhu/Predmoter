@@ -243,6 +243,15 @@ class ConverterParser(BaseParser):
         self.parser.add_argument("--strand", type=str, default=None,
                                  help="None means the average of both strands is used, else + or - can be selected")
         self.parser.add_argument("--prefix", type=str, default=None, help="prefix for log file")
+        self.parser.add_argument("--experimental", action="store_true",
+                                 help="add to convert the mean experimental coverage of a experimental h5 file "
+                                      "instead of predictions")
+        self.parser.add_argument("--datasets", type=str, nargs="+", dest="dsets", default=None,
+                                 help="the dataset prefix(es) to convert when --experimental is set")
+        self.parser.add_argument("--blacklist-file", type=str, dest="bl_chroms", default=None,
+                                 help="text file of chromosomes/sequences that should not be included "
+                                      "in the conversion, e.g. chloroplast or mitochondrial sequences; "
+                                      "one chromosome ID per line in the text file")
 
     def check_args(self, args):
         if not os.path.exists(args.input_file):
@@ -263,3 +272,7 @@ class ConverterParser(BaseParser):
         assert args.strand in ["+", "-", None], f"valid strand is either +, - or None not {args.strand}"
 
         args.prefix = f"{args.prefix}_" if args.prefix is not None else ""
+
+        if args.experimental:
+            assert args.dsets is not None, "datasets to convert have to be chosen for converting from" \
+                                           " h5 files containing experimental coverage"

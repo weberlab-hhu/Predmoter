@@ -208,12 +208,12 @@ class PredictCallback(Callback):
         # data group setup
         # --------------------
         h5df.create_group("data")
-        h5df.create_dataset("data/species", shape=(self.length,), maxshape=(None,), dtype="S50",
-                            fillvalue=in_h5df["data/species"][0])
-        h5df.create_dataset("data/seqids", shape=(self.length,), maxshape=(None,), dtype="S50",
-                            data=np.array(in_h5df["data/seqids"]))
-        h5df.create_dataset("data/start_ends", shape=(self.length, 2), maxshape=(None, 2), dtype=int,
-                            data=np.array(in_h5df["data/start_ends"]))
+        h5df.create_dataset("data/species", shape=(self.length,), maxshape=(None,), chunks=(1,),
+                            dtype="S50", fillvalue=in_h5df["data/species"][0])
+        h5df.create_dataset("data/seqids", shape=(self.length,), maxshape=(None,), chunks=(1,),
+                            dtype="S50", data=np.array(in_h5df["data/seqids"]))
+        h5df.create_dataset("data/start_ends", shape=(self.length, 2), maxshape=(None, 2), chunks=(1, 2),
+                            dtype=int, data=np.array(in_h5df["data/start_ends"]))
 
         # prediction groups
         # ---------------------
