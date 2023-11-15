@@ -1,5 +1,5 @@
 # Predmoter 
-Predict promoter and enhancer associated new generation sequencing (NGS) data,
+Predict promoter and enhancer associated next generation sequencing (NGS) data,
 Assay for Transposase Accessible Chromatin using sequencing (ATAC-seq) and
 histone (H3K4me3) Chromatin immunoprecipitation DNA-sequencing (ChIP-seq),
 base-wise for plant species.    
@@ -92,7 +92,7 @@ provide an input directory (``-i <input_directory>``) that contains these folder
 using a trained model
     
 Predicting is only possible on single files. The parameter ``-f/--filepath`` needs
-to be used instead. (see [Predicting](#45-predicting))
+to be used instead. (see [Predicting](#45-inference))
     
 ### Input files
 For more details see the [h5 file documentation](docs/h5_files.md).     
@@ -268,7 +268,8 @@ Predictions will be applied to an individual fasta or h5 file only.
 > "-" strand per read), so predictions are as well. If a fasta file is used the chosen
 > ``--subsequence-length``, default 21384 base pairs, needs to be divisible by the 
 > model's step to the power of the number of CNN layers. This condition is fulfilled
-> by the provided models (TBA) and the default subsequence length.
+> by the provided models (https://github.com/weberlab-hhu/predmoter_models) and the
+> default subsequence length.
     
 **Command:**   
 ```bash
