@@ -23,6 +23,7 @@ base-wise for plant species.
     4. [Testing](#44-testing)
     5. [Inference](#45-inference)
 5. [References](#references)
+6. [Citation](#citation)
 
 ## 1. Disclaimer <a id="1-disclaimer"></a>
 This software is undergoing active testing and development. Build on it at your
@@ -368,3 +369,9 @@ Zhang, Y., Liu, T., Meyer, C. A., Eeckhoute, J., Johnson, D. S.,
 Bernstein, B. E., Nussbaum, C., Myers, R. M., Brown, M., Li, W., Shirley, X. S. (2008).
 Model-Based Analysis of ChIP-Seq (MACS). Genome Biology, 9(9) , 1–9.
 https://doi.org/10.1186/GB-2008-9-9-R137
+    
+## Citation <a id="citation"></a>
+Kindel, F., Triesch, S., Schlüter, U., Randarevitch, L. A., Reichel-Deland, V.,
+Weber, A. P. M., & Denton, A. K. (2023). Predmoter - Cross-species prediction of 
+plant promoter and enhancer regions. BioRxiv, 2023.11.03.565452.
+https://doi.org/10.1101/2023.11.03.565452

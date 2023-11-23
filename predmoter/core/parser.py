@@ -249,8 +249,8 @@ class ConverterParser(BaseParser):
         self.parser.add_argument("--datasets", type=str, nargs="+", dest="dsets", default=None,
                                  help="the dataset prefix(es) to convert when --experimental is set")
         self.parser.add_argument("--blacklist-file", type=str, dest="bl_chroms", default=None,
-                                 help="text file of chromosomes/sequences that should not be included "
-                                      "in the conversion, e.g. chloroplast or mitochondrial sequences; "
+                                 help="text file of chromosomes/sequences that will not be included "
+                                      "in the conversion, e.g., chloroplast or mitochondrial sequences; "
                                       "one chromosome ID per line in the text file")
 
     def check_args(self, args):

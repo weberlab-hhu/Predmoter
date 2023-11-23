@@ -1,7 +1,6 @@
 import os
 import argparse
 from configobj import ConfigObj
-# consider logging results instead of should be empty
 
 
 def main(directory, config, dset, usr_name, ref):
@@ -403,7 +402,8 @@ geenuff2h5.py --h5-output-path h5/{spec}.h5 --input-db-path helixer_pred/{spec}_
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Setup qsubs",
-                                     description="Setup additional qsub files needed for ATAC/ChIP-seq.",
+                                     description="Setup additional qsub files needed for processing public "
+                                                 "ATAC/ChIP-seq data when using RNAsleek.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", "--directory", type=str, default=None, required=True,
                         help="qsub files are written to <directory>/qsubs; "

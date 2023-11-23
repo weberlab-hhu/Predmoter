@@ -52,14 +52,14 @@ def get_blacklist_chromosomes(input_json):
 def check_seqids(h5df, bl_chroms):
     if bl_chroms[0] not in h5df["data/seqids"][:]:
         raise ValueError(f"One of the chromosomes to blacklist, {bl_chroms[0].item().decode()}, couldn't be found "
-                         f"in the input h5 file. Check if the sequence report is correct.")
+                         f"in the input h5 file. Please check if the sequence report is correct.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Add mask/blacklist regions",
                                      description="Add 'data/blacklist' to training/validation and/or test h5 files to"
                                                  "mask non-nuclear and scaffold regions, if the assembly doesn't"
-                                                 "only contain scaffolds.",
+                                                 "only contain scaffolds/contigs.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-i", "--input-json", type=str, default=None, required=True,
                         help="input sequence_report.jsonl from NCBI (sequence information about the assembly, "

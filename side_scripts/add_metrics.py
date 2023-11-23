@@ -23,42 +23,44 @@ def get_metric(h5df, metric, key):
     return np.median(np.array(metrics), axis=0)
 
 
-def main(h5_file, keys, metrics, overwrite):
+def main(h5_file, dsets, metrics, overwrite):
     assert os.path.isfile(h5_file), f"either {h5_file} doesn't exist or path is wrong"
     h5df = h5py.File(h5_file, "a")
     for metric in metrics:
-        for key in keys:
-            if f"{key}_{metric}s" in h5df["evaluation"].keys():
+        for dset in dsets:
+            if f"{dset}_{metric}s" in h5df["evaluation"].keys():
                 if overwrite:
                     print("{}s of key {} already exists in {} and will be overwritten"
-                          .format(metric, key, h5_file.split("/")[-1]))
-                    h5df[f"evaluation/{key}_{metric}s"][:] = get_metric(h5df, metric, key)
+                          .format(metric, dset, h5_file.split("/")[-1]))
+                    h5df[f"evaluation/{dset}_{metric}s"][:] = get_metric(h5df, metric, dset)
                 else:
                     print("{}s has already been calculated for {} in {}; task will be skipped"
-                          .format(metric, key, h5_file.split("/")[-1]))
+                          .format(metric, dset, h5_file.split("/")[-1]))
 
             else:
                 # only add key if there is a coverage dataframe from which to calculate the average
-                assert f"{key}_coverage" in h5df["evaluation"].keys(), f"there is no {key}" \
+                assert f"{dset}_coverage" in h5df["evaluation"].keys(), f"there is no {dset}" \
                                                                        f" dataset in {h5_file.split('/')[-1]}"
-                print("adding {}s of {} to {}".format(metric, key, h5_file.split("/")[-1]))
-                h5df.create_dataset(f"evaluation/{key}_{metric}s",
-                                    shape=(len(h5df[f"evaluation/{key}_meta"]["bam_files"]),),
-                                    maxshape=(None,), dtype=float, data=get_metric(h5df, metric, key))
+                print("adding {}s of {} to {}".format(metric, dset, h5_file.split("/")[-1]))
+                h5df.create_dataset(f"evaluation/{dset}_{metric}s",
+                                    shape=(len(h5df[f"evaluation/{dset}_meta"]["bam_files"]),),
+                                    maxshape=(None,), dtype=float, data=get_metric(h5df, metric, dset))
 
     h5df.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Add metrics",
-                                     description="Add averages and medians of chosen NGS dataset(s) to the h5 file.",
+                                     description="Add averages and/or medians of chosen NGS dataset(s) to the h5 file"
+                                                 "(NOT a prediction h5 file, but one created by Helixer to "
+                                                 "train, validate or test on).",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--h5-file", type=str, default=None, required=True, help="h5 input file")
-    parser.add_argument("--keys", nargs="+", dest="keys", default=["atacseq", "h3k4me3"],
-                        help="list of keys of which average should be calculated and added to the "
-                             "file; (--keys atacseq h3k4me3 ...)")
+    parser.add_argument("--dsets", nargs="+", dest="dsets", default=["atacseq", "h3k4me3"],
+                        help="list of datasets of which average should be calculated and added to the "
+                             "file; (--dsets atacseq h3k4me3 ...)")
     parser.add_argument("--metrics", nargs="+", dest="metrics", default=["mean", "median"],
-                        help="list of metrics per key to add; (--metrics mean median ...)")
+                        help="list of metrics per dataset to add; (--metrics mean median)")
     parser.add_argument("--overwrite", action="store_true",
                         help="if added will ignore if an average of a key already exists in the "
                              "file and still calculate the average")

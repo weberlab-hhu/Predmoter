@@ -3,31 +3,40 @@ import os
 import h5py
 import numpy as np
 
+from predmoter.core.constants import EPS
 
-def pear_coeff(prediction, target, is_log=False):
-    # Function to calculate the pearson correlation (the numpy version)
 
-    # For two dimensions the program needs to transpose the prediction and target arrays, so
-    # that it compares each array to it's target individually instead. Example: two arrays of size:
-    # (3,100), one is the prediction, the other the target. The function will compare the first values
-    # of all three sub-arrays from the prediction with the first values of all three sub-arrays from the
-    # target, then second values of all, then the third and so on. The squeeze function helps to calculate
-    # the pearson correlation of arrays with size (i, 1).
+def pear_coeff(replicate, target, is_log=False):
+    """Calculate the pearson correlation coefficient (numpy version).
 
-    dims = len(prediction.shape)
+            This function only accepts tensors with a maximum of 2 dimensions. It excludes NaNs
+            so that NaN can be used for positions to be masked as masked tensors are at present
+            still in development.
+
+                Args:
+                    replicate: 'numpy.array', experimental NGS coverage replicate 1
+                    target: 'numpy.array', experimental NGS coverage replicate 2/target
+                    is_log: 'bool', if True (default) assumes the models' predictions are logarithmic
+
+                Returns:
+                    'numpy.array', average pearson correlation coefficient (correlation between
+                        the replicates are calculated per chunk/subsequence and then averaged)
+    """
+
+    dims = len(replicate.shape)
     assert dims <= 2, f"can only calculate pearson's r for tensors with 1 or 2 dimensions, not {dims}"
     if dims == 2:
-        prediction = np.squeeze(prediction.transpose(0, 1))
+        replicate = np.squeeze(replicate.transpose(0, 1))
         target = np.squeeze(target.transpose(0, 1))
 
     if is_log:
-        prediction = np.exp(prediction)
+        replicate = np.exp(replicate)
 
-    p = prediction - np.mean(prediction, axis=0)
+    p = replicate - np.mean(replicate, axis=0)
     t = target - np.mean(target, axis=0)
     coeff = np.sum(p * t, axis=0) / (
-            np.sqrt(np.sum(p ** 2, axis=0)) * np.sqrt(np.sum(t ** 2, axis=0)) + 1e-8)
-    # 1e-8 avoiding division by 0
+            np.sqrt(np.sum(p ** 2, axis=0)) * np.sqrt(np.sum(t ** 2, axis=0)) + EPS)
+    # eps avoiding division by 0
     return np.mean(coeff)
 
 
@@ -46,7 +55,7 @@ def string_table(rep_names, array):
 def calc_pearson_matrix(h5df, key, num, mode):
     matrix = []
     n = 1000
-    for i in range(0, len(h5df["data/X"]), n):  # len(h5df["data/X"])
+    for i in range(0, h5df["data/X"].shape[0], n):
         array = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=np.float32)
         # array = array[array > 0]  # only non-negatives/no padding filler values are used; needed?
         # means and medians: right now old stuff/not usable
@@ -75,10 +84,10 @@ def calc_pearson_matrix(h5df, key, num, mode):
     return matrix
 
 
-def main(h5_file, output_dir, keys, mode):
+def main(h5_file, output_dir, dsets, mode):
     h5df = h5py.File(h5_file, mode="r")
 
-    for key in keys:
+    for key in dsets:
         if f"{key}_coverage" in h5df["evaluation"].keys():
             # helixer dev branch: meta in evaluation
             reps = [rep.decode().split('/')[-1].split('.')[0]
@@ -94,14 +103,17 @@ def main(h5_file, output_dir, keys, mode):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="Pearson's R",
-                                     description="Calculate pearson correlation for each replicate combi.",
+    parser = argparse.ArgumentParser(prog="Calculate replicate Pearson's correlation",
+                                     description="Calculate Pearson correlation for each experimental NGS data "
+                                                 "replicate combination added in a given h5 file.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--h5-file", type=str, default=None, required=True, help="h5 input file")
+    parser.add_argument("--h5-file", type=str, default=None, required=True,
+                        help="h5 input file; not a prediction h5 file, but one created by Helixer to train, "
+                             "validate or test on")
     parser.add_argument("-o", "--output-dir", type=str, default=".", help="output directory")
-    parser.add_argument("--keys", nargs="+", dest="keys", required=True,
-                        help="list of keys of which average should be calculated and added to the "
-                             "file (--keys atacseq h3k4me3 ...)")
+    parser.add_argument("--dsets", nargs="+", dest="dsets", required=True,
+                        help="list of datasets of which average should be calculated and added to the "
+                             "file (--dsets atacseq h3k4me3 ...)")
     parser.add_argument("--mode", type=str, default="none", help="test normal and normalized (mean/median) correlation")
     args = parser.parse_args()
 

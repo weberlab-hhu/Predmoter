@@ -55,14 +55,14 @@
 | --epochs/-e     | number of training runs; **Attention:** max_epochs, so when training for 2 epochs and then resuming training (``--resume-training``) for 4 additional epochs, you need ``-e 6``  | 5                |
 
 ## Convert to coverage
-| Argument            | Explanation                                                                                                                                                                | Default           |
-|:--------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------|
-| --input-file/-i     | **required**, input h5 predictions file (Predmoter output)                                                                                                                 | /                 |
-| --output-dir/-o     | output directory for all converted files                                                                                                                                   | current directory |
-| --output-format/-of | output format for predictions (valid: bigwig (bw), bedgraph (bg))                                                                                                          | bigwig            |
-| --basename          | **required**, basename of the output files, naming convention: ``basename_dataset_strand.bw/bg.gz``                                                                        | /                 |
-| --strand            | if not specified the average of both strands is used, else + or - can be selected                                                                                          | avg               |
-| --prefix            | prefix for log file                                                                                                                                                        | /                 |
-| --experimental      | add to convert the mean experimental coverage of a experimental h5 instead of predictions                                                                                  | /                 |
-| --datasets          | the dataset prefix(es) to convert when --experimental is set                                                                                                               | None              |
-| --blacklist-file    | text file of chromosomes/sequences that should not be included in the conversion, e.g. chloroplast or mitochondrial sequences; one chromosome ID per line in the text file | None              |
+| Argument            | Explanation                                                                                                                                                               | Default           |
+|:--------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------|
+| --input-file/-i     | **required**, input h5 predictions file (Predmoter output)                                                                                                                | /                 |
+| --output-dir/-o     | output directory for all converted files                                                                                                                                  | current directory |
+| --output-format/-of | output format for predictions (valid: bigwig (bw), bedgraph (bg))                                                                                                         | bigwig            |
+| --basename          | **required**, basename of the output files, naming convention: ``basename_dataset_strand.bw/bg.gz``                                                                       | /                 |
+| --strand            | if not specified the average of both strands is used, else + or - can be selected                                                                                         | avg               |
+| --prefix            | prefix for log file                                                                                                                                                       | /                 |
+| --experimental      | add to convert the mean experimental coverage of a experimental h5 instead of predictions                                                                                 | /                 |
+| --datasets          | the dataset prefix(es) to convert when --experimental is set                                                                                                              | None              |
+| --blacklist-file    | text file of chromosomes/sequences that will not be included in the conversion, e.g., chloroplast or mitochondrial sequences; one chromosome ID per line in the text file | None              |
