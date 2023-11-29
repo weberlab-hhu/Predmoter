@@ -28,7 +28,7 @@ class Converter:
             self.dsets = dsets
         else:
             self.dsets = [dset.decode() for dset in self.infile["prediction/datasets"][:]]
-        self.outfiles = self.get_output_files(output_dir, basename)
+        self.outfiles = self.get_output_files(output_dir, basename, bl_chroms)
         if experimental:
             self.seq_len = self.infile["data/X"][:1].shape[1]
         else:
@@ -47,7 +47,7 @@ class Converter:
         self.convert()
         log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
 
-    def get_output_files(self, output_dir, basename):
+    def get_output_files(self, output_dir, basename, bl_chroms):
         """Create list of output files.
 
         Each dataset will get its own bigwig or bedgraph file. The predictions for the
@@ -55,9 +55,10 @@ class Converter:
         existing files won't be overwritten.
         """
         strand = self.strand if self.strand is not None else "avg"
+        bl = "" if bl_chroms is None else "_bl"
         outfiles = []
         for dset in self.dsets:
-            filename = f"{basename}_{dset}_{strand}_strand.{self.output_format}"
+            filename = f"{basename}_{dset}_{strand}_strand{bl}.{self.output_format}"
             outfile = os.path.join(output_dir, filename)
             if os.path.exists(outfile):
                 raise OSError(f"the output file {filename} "
@@ -193,6 +194,7 @@ class Converter:
         if is_negative:
             if is_last:
                 # start padding: e.g. start_ends[strand_idxs[0]] = [102642, 85536], np.diff: -17106
+                # robust against chromosomes being divisible by seq_len
                 start_padding = -np.diff(self.infile["data/start_ends"][strand_idxs[0]]).item()
                 return self.custom_flip(array, start_padding, self.seq_len)
             return np.flipud(array)
@@ -210,6 +212,8 @@ class Converter:
     def custom_flip(array, start_padding, end_padding):
         """Flip differently for negative strand values containing the last chunk.
 
+        The mini_arrays are example predictions for the individual strands. Predictions for each strand
+        are rarely identical.
         Example:
             (the -1 denote the padding)
             positive strand

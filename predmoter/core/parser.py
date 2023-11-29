@@ -251,7 +251,8 @@ class ConverterParser(BaseParser):
         self.parser.add_argument("--blacklist-file", type=str, dest="bl_chroms", default=None,
                                  help="text file of chromosomes/sequences that will not be included "
                                       "in the conversion, e.g., chloroplast or mitochondrial sequences; "
-                                      "one chromosome ID per line in the text file")
+                                      "one chromosome ID per line in the text file, i.e. add_blacklist test files;"
+                                      "the output files get 'bl' added at the end to identify blacklisting")
 
     def check_args(self, args):
         if not os.path.exists(args.input_file):

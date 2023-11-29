@@ -21,7 +21,7 @@ base-wise for plant species.
        2. [Resume training](#432-resume-training)
        3. [Reproducibility](#433-reproducibility)
     4. [Testing](#44-testing)
-    5. [Inference](#45-inference)
+    5. [Inference (Predicting)](#45-inference)
 5. [References](#references)
 6. [Citation](#citation)
 
@@ -40,7 +40,10 @@ more context, improving the ATAC-seq predictions.
     
 ## 3. Install <a id="3-install"></a>
 ### 3.1 GPU requirements <a id="31-gpu-requirements"></a>
-For realistically sized datasets, a GPU will be necessary for acceptable performance.   
+For realistically sized datasets, a GPU will be necessary for acceptable performance.
+(Predictions can be generated on a CPU with the [available models](), but it will
+take a lot longer. The CPU predictions will be the same as the GPU predictions
+would be.)
    
 The example below and all provided models should run on an Nvidia GPU with 11GB
 Memory (here a GTX 1080 Ti). The CPU used was E5-2640v4 (Broadwell).   
@@ -264,13 +267,19 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 ```
      
 ### 4.5 Inference <a id="45-inference"></a>
+>IMPORTANT: Models trained on a GPU can be used to generate predictions on the CPU.
+> The CPU predictions will be the same as the GPU predictions would be. Predicting
+> on the CPU will take a lot longer.
+    
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
 > "-" strand per read), so predictions are as well. If a fasta file is used the chosen
 > ``--subsequence-length``, default 21384 base pairs, needs to be divisible by the 
 > model's step to the power of the number of CNN layers. This condition is fulfilled
 > by the provided models (https://github.com/weberlab-hhu/predmoter_models) and the
-> default subsequence length.
+> default subsequence length. The batch size depends on the capacity of the CPU/GPU.
+> The default batch size is 120. If the error ``RuntimeError:CUDA out of memory.``
+> or other memory errors occur, try setting a lower batch size.
     
 **Command:**   
 ```bash

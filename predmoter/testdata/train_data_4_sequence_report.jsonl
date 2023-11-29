@@ -1,0 +1,5 @@
+{"assemblyAccession":"Artificial_004.1","assemblyUnit":"Primary Assembly","assignedMoleculeLocationType":"Chromosome","chrName":"1","gcCount":"23453","gcPercent":40.0,"genbankAccession":"Chrom1","length":58633,"role":"assembled-molecule"}
+{"assemblyAccession":"Artificial_004.1","assemblyUnit":"Primary Assembly","assignedMoleculeLocationType":"Chromosome","chrName":"2","gcCount":"9935","gcPercent":50.0,"genbankAccession":"Chrom2","length":19870,"role":"assembled-molecule"}
+{"assemblyAccession":"Artificial_004.1","assemblyUnit":"Primary Assembly","assignedMoleculeLocationType":"Chromosome","chrName":"Un","genbankAccession":"Unplaced1","length":1223,"role":"unplaced-scaffold"}
+{"assemblyAccession":"Artificial_004.1","assemblyUnit":"Primary Assembly","assignedMoleculeLocationType":"Chromosome","chrName":"Un","genbankAccession":"Unplaced2","length":4587,"role":"unplaced-scaffold"}
+{"assemblyAccession":"Artificial_004.1","assemblyUnit":"Primary Assembly","assignedMoleculeLocationType":"Chromosome","chrName":"Un","genbankAccession":"Unplaced3","length":12356,"role":"unplaced-scaffold"}

@@ -4,31 +4,47 @@ import numpy as np
 from sklearn.metrics import confusion_matrix
 
 
-def extract_chrom_lengths(chrom_file, bl_chroms):
+def extract_chrom_lengths(chrom_file):
     """Extract chromosome lengths from a text file."""
     ids = np.loadtxt(chrom_file, usecols=0, dtype=str)
     lengths = np.loadtxt(chrom_file, usecols=1, dtype=np.int32)
     chrom_lengths = {id_: length for id_, length in zip(ids, lengths)}
-
-    if bl_chroms is not None:
-        for chrom in bl_chroms:
-            chrom_lengths.pop(chrom)
-
     return chrom_lengths
 
 
-def get_chrom_lengths(h5df, bl_chroms):
+def get_chrom_lengths(h5_file):
     """Extract chromosome lengths from a h5 file created by Helixer or Predmoter."""
+    h5df = h5py.File(h5_file, "r")
     chrom_lengths = dict.fromkeys(h5df["data/seqids"][:])
-    
-    if bl_chroms is not None:
-        for chrom in bl_chroms:
-            chrom_lengths.pop(chrom.encode())
             
     for c in chrom_lengths:
         idxs = np.where(h5df["data/seqids"][:] == c)[0].astype(dtype=np.int32)
         chrom_lengths[c] = np.max(h5df["data/start_ends"][idxs])
     return chrom_lengths
+
+
+def blacklist_chromosomes(chrom_lengths: dict, bl_chroms, chrom_file, encoded: bool):
+    id_ = bl_chroms[0].encode() if encoded else bl_chroms[0]
+    assert id_ in chrom_lengths.keys(), \
+        f"first sequence ID, {bl_chroms[0]}, to exclude from computations doesn't match the " \
+        f"any sequence ID in {chrom_file}"
+    for chrom in bl_chroms:
+        if encoded:
+            chrom_lengths.pop(chrom.encode())
+        else:
+            chrom_lengths.pop(chrom)
+    return chrom_lengths
+
+
+def check_bed(bed_files, chromosomes, chrom_file, encoded):
+    for file in bed_files:
+        ids = np.loadtxt(file, delimiter="\t", dtype=str, skiprows=1, usecols=0)
+        assert len(ids) > 0, f"the bed file {file} is empty, no peaks can be compared"
+
+        id_ = ids[0].encode() if encoded else ids[0]
+        if encoded:
+            assert id_ in chromosomes, f"the first sequence ID, {ids[0]}, in the bed file {file} doesn't " \
+                                       f"match any sequence ID in {chrom_file}"
 
 
 def extract_peaks(bed_file):
@@ -55,7 +71,7 @@ def compute_f1(tp, fp, fn):  # adapted from Helixer
         f1 = 2 * precision * recall / (precision + recall)
     else:
         f1 = 0.0
-    return f1
+    return f1, precision, recall
 
 
 def create_peak_array(chrom, chrom_length, peak_dict):
@@ -76,14 +92,19 @@ def convert_to_table_line(spacing, contents):
 
 
 def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=None):
+    if h5_file is None:
+        chromosomes = extract_chrom_lengths(chrom_file)
+        encoded = False
+        chromosome_file = chrom_file
+    else:
+        chromosomes = get_chrom_lengths(h5_file)
+        encoded = True
+        chromosome_file = h5_file
+
+    check_bed([predicted_peaks, experimental_peaks], chromosomes.keys(), chromosome_file, encoded=encoded)
     if bl_chroms is not None:
         bl_chroms = np.loadtxt(bl_chroms, usecols=0, dtype=str)
-
-    if h5_file is None:
-        chromosomes = extract_chrom_lengths(chrom_file, bl_chroms)
-    else:
-        h5df = h5py.File(h5_file, "r")
-        chromosomes = get_chrom_lengths(h5df, bl_chroms)
+        chromosomes = blacklist_chromosomes(chromosomes, bl_chroms, chromosome_file, encoded=encoded)
 
     pred_peaks = extract_peaks(predicted_peaks)
     exp_peaks = extract_peaks(experimental_peaks)
@@ -99,8 +120,9 @@ def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=Non
 
     matrix = np.sum(matrices, axis=0)
     tn, fp, fn, tp = matrix.ravel()
-    print(f"{convert_to_table_line(20, ['F1', 'TP', 'FP', 'FN'])}\n"
-          f"{convert_to_table_line(20, [compute_f1(tp, fp, fn), tp, fp, fn])}")
+    f1, precision, recall = compute_f1(tp, fp, fn)
+    print(f"{convert_to_table_line(20, ['F1', 'Precision', 'Recall', 'TP', 'FP', 'FN'])}\n"
+          f"{convert_to_table_line(20, [f1, precision, recall, tp, fp, fn])}")
 
 
 if __name__ == "__main__":

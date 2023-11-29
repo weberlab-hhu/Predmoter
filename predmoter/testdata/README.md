@@ -1,30 +1,39 @@
 # Testdata
-The training and validation test data was created out of valid data from the
-species *Arabidopsis thaliana*. The "coordinates" in ``start_ends`` are therefore
-incorrect, but not needed for the test cases. The prediction testdata h5 files
-were generated from the corresponding artificial fasta file. They contain
-artificial but coherent ``start_ends``, as they are necessary to create coherent
-predictions files. Almost all files have the default chunk sequence length 21384 bp.
-The last file ``pred_data_2.h5`` has the chunk sequence length 42768 bp. Some files
-have artificial special cases to test: gaps (large stretches of Ns with no
-corresponding NGS coverage, these are masked by default), Ns with corresponding NGS
-coverage (these are not masked), padding (chromosome end, when the chromosome is not
-exactly divisible by the sequence length, so that arrays of equal size are created),
-MOA-seq (random values to test the code on three datasets), and blacklisting information
-(added data/blacklist dataframe to test blacklisting). the file ``train_data_5.h5`` comes
-with a corresponding sequence report file ``train_data_5_report.jsonl``, which was used
-to create the data/blacklist dataframe via
+The artificial test data was created using
+[a jupyter notebook](testdata_creation.ipynb).
+The fake DNA sequence was cut into subsequences of 21384 bp.  Both strands, plus and
+minus, were created. The artificial test data contain artificial but coherent
+``start_ends``. They are also necessary to create coherent predictions files. The
+last file ``pred_data_2.h5`` has the subsequence length 42768 bp. Some files have
+artificial special cases to test:
+- Padding: As few chromosomes, scaffolds or contigs were divisible by this number,
+  sequence ends as well as short sequences were padded with the vector
+  ``[0., 0., 0., 0.]``. Padded base pairs are masked during training. Non-divisible
+  chromosomes were artificially created for the test cases.
+- Gaps: If a subsequence only contained N bases, here referred to as “gap
+  subsequence”, it is filtered out during training.
+- Ns: N bases not stretching over an entire subsequence. These aren't filtered out.
+- Flagged sequences (blacklisting): Unplaced scaffolds and non-nuclear sequences
+  can be flagged and filtered out. Adding this option, for every h5 file containing
+  the array ``data/blacklist``, the "blacklisted" sequences are filtered out during
+  training and/or testing.
+
+The files ``train_data_2.h5``, ``train_data_4.h5``and ``train_data_5.h5`` come with
+a corresponding sequence report file ``<file>_sequence_report.jsonl``, which can be
+used to create the ``data/blacklist`` dataframe for ``train_data_4.h5`` and
+``train_data_5.h5`` is used to test adding this dataframe to ``train_data_2.h5`` via
 [add_blacklist.py](../../side_scripts/add_blacklist.py).
+
      
-| File           | Artificial datasets         | Chunks | Artificial special cases                         |
-|:---------------|:----------------------------|:-------|:-------------------------------------------------|
-| train_data_1   | ATAC-seq, ChIP-seq          | 25     | /                                                |
-| train_data_2   | ATAC-seq, ChIP-seq, MOA-seq | 10     | gap, padding                                     |
-| train_data_3   | MOA-seq                     | 7      | /                                                |
-| train_data_4   | ATAC-seq, ChIP-seq          | 6      | Ns in the middle                                 |
-| train_data_5   | ATAC-seq                    | 11     | gap, blacklist information (``data/blacklist``)  |
-| val_data_1     | ATAC-seq, ChIP-seq          | 5      | /                                                |
-| val_data_2     | ATAC-seq, ChIP-seq, MOA-seq | 4      | /                                                |
-| val_data_3     | ATAC-seq                    | 6      | gap (Ns stretching beyond chunk border)          |
-| predict_data_1 | /                           | 16     | gap (Ns stretching beyond chunk border), padding |
-| predict_data_2 | /                           | 10     | gap (Ns stretching beyond chunk border), padding |
+| File           | Artificial dataset prefixes | Subsequences            | Artificial special cases                                                             |
+|:---------------|:----------------------------|:------------------------|:-------------------------------------------------------------------------------------|
+| train_data_1   | atacseq, h3k4me3            | 18                      | padded bases, Ns                                                                     |
+| train_data_2   | atacseq, h3k4me3, moaseq    | 16                      | padded bases, Ns, 1 gap, (2 flagged sequence IDs not used to add ``data/blacklist``) |
+| train_data_3   | moaseq                      | 6                       | /                                                                                    |
+| train_data_4   | atacseq, h3k4me3            | 14 (8 after filtering)  | padded bases, 3 flagged sequence IDs                                                 |
+| train_data_5   | atacseq                     | 20 (14 after filtering) | padded bases, Ns, 1 gap, 3 flagged sequence IDs (1 in between "valid" chromosomes)   |
+| val_data_1     | atacseq, h3k4me3            | 8                       | /                                                                                    |
+| val_data_2     | atacseq, h3k4me3, moaseq    | 4                       | padded bases                                                                         |
+| val_data_3     | atacseq                     | 8                       | padded bases, 1 gap                                                                  |
+| predict_data_1 | /                           | 16                      | padded bases, 1 gap                                                                  |
+| predict_data_2 | /                           | 10                      | padded bases, 1 gap                                                                  |

@@ -293,8 +293,8 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def compute_mask(base_tensor, repeats):
-        """Compute mask to exclude padding/Ns."""
-        mask = ~torch.max(base_tensor, dim=2)[0].bool()  # True for bases that are padding/Ns
+        """Compute mask to exclude padding."""
+        mask = ~torch.max(base_tensor, dim=2)[0].bool()  # True for bases that are padding
         if repeats == 1:
             return mask.reshape(mask.size(0), mask.size(1), 1)
         return torch.stack([mask] * repeats, dim=2)
