@@ -159,13 +159,13 @@ def prep_predict_data(filepath):
     return {"predict": [filepath]}  # list for consistency reasons
 
 
-def fasta2h5(filepath, h5_output_path, subseq_len, multiprocess):
+def fasta2h5(filepath, h5_output_path, subseq_len, species, multiprocess):
     """Convert fasta file to h5 file using Helixer."""
     start = time.time()
     rank_zero_info(f"Converting fasta input file {filepath} to h5 file.")
     controller = HelixerFastaToH5Controller(filepath, h5_output_path)
     controller.export_fasta_to_h5(chunk_size=subseq_len, compression="gzip",
-                                  multiprocess=multiprocess, species="Lorem_ipsum")
+                                  multiprocess=multiprocess, species=species)
     rank_zero_info(f"Conversion to h5 file finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.")
     # filler species, as this h5 file will be deleted anyway
 

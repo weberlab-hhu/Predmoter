@@ -27,7 +27,7 @@ base-wise for plant species.
 
 ## 1. Disclaimer <a id="1-disclaimer"></a>
 This software is undergoing active testing and development. Build on it at your
-own risk.   
+own risk.     
     
 ## 2. Aim <a id="2-aim"></a>
 Cross-species prediction of plant promoter/enhancer regions in the DNA with
@@ -36,7 +36,9 @@ accessibility (open chromatin regions) (Buenrostro et al., 2013). Regulatory
 elements, like promoters and enhancers, commonly reside in these open chromatin
 regions. The histone ChIP-seq data, specifically H3K4me3, which is primarily
 present at active genes (Santos-Rosa et al., 2002), is used to give the network
-more context, improving the ATAC-seq predictions.   
+more context, partly improving the ATAC-seq predictions. Pretrained models can be
+found at: https://github.com/weberlab-hhu/predmoter_models (see also
+[Inference](#45-inference) if interested in predicting with Predmoter).    
     
 ## 3. Install <a id="3-install"></a>
 ### 3.1 GPU requirements <a id="31-gpu-requirements"></a>

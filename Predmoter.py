@@ -117,7 +117,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
     # ----------------------
     if temp_dir is not None:
         h5_output = os.path.join(temp_dir, f"{args.species}.h5")
-        fasta2h5(input_data[0], h5_output, seq_len, args.multiprocess)
+        fasta2h5(input_data[0], h5_output, seq_len, args.species, args.multiprocess)
         input_data = [h5_output]  # set input_data to converted file
 
     # Callbacks and Trainer
