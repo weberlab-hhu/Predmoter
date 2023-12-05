@@ -3,6 +3,10 @@ Predict promoter and enhancer associated next generation sequencing (NGS) data,
 Assay for Transposase Accessible Chromatin using sequencing (ATAC-seq) and
 histone (H3K4me3) Chromatin immunoprecipitation DNA-sequencing (ChIP-seq),
 base-wise for plant species.    
+     
+Pretrained models can be found at: https://github.com/weberlab-hhu/predmoter_models
+(see also [4.5 Inference](#45-inference) if interested in predicting with Predmoter).
+[Instructions for basic code tests](predmoter/testdata/README.md) are provided.
     
 ## Table of contents
 1. [Disclaimer](#1-disclaimer)
@@ -36,14 +40,13 @@ accessibility (open chromatin regions) (Buenrostro et al., 2013). Regulatory
 elements, like promoters and enhancers, commonly reside in these open chromatin
 regions. The histone ChIP-seq data, specifically H3K4me3, which is primarily
 present at active genes (Santos-Rosa et al., 2002), is used to give the network
-more context, partly improving the ATAC-seq predictions. Pretrained models can be
-found at: https://github.com/weberlab-hhu/predmoter_models (see also
-[Inference](#45-inference) if interested in predicting with Predmoter).    
+more context, partly improving the ATAC-seq predictions.        
     
 ## 3. Install <a id="3-install"></a>
 ### 3.1 GPU requirements <a id="31-gpu-requirements"></a>
 For realistically sized datasets, a GPU will be necessary for acceptable performance.
-(Predictions can be generated on a CPU with the [available models](), but it will
+(Predictions can be generated on a CPU with the
+[available models](https://github.com/weberlab-hhu/predmoter_models), but it will
 take a lot longer. The CPU predictions will be the same as the GPU predictions
 would be.)
    
@@ -271,7 +274,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 ### 4.5 Inference <a id="45-inference"></a>
 >IMPORTANT: Models trained on a GPU can be used to generate predictions on the CPU.
 > The CPU predictions will be the same as the GPU predictions would be. Predicting
-> on the CPU will take a lot longer.
+> on the CPU will take longer.
     
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
@@ -292,7 +295,7 @@ Predmoter.py -f <input_file> -o <output_directory> -m predict \
 
 # convert h5 output file after prediction
 convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
---basename <basename> --strand +
+--basename <basename>
 # optional: --prefix <prefix>
 ```
     
