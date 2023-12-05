@@ -105,8 +105,9 @@ class SeedCallback(Callback):
             self.seed = self.set_seed(seed, self.workers)
             self.state = self.collect_seed_state(self.include_cuda)
         else:
-            # load model checkpoint callback
-            seed_callback_dict = torch.load(model_path)["callbacks"]["SeedCallback"]
+            # load model checkpoint callback on CPU
+            seed_callback_dict = torch.load(model_path,
+                                            map_location=lambda storage, loc: storage)["callbacks"]["SeedCallback"]
 
             # retrieve seed and state dict from model checkpoint
             self.seed = seed_callback_dict["seed"]

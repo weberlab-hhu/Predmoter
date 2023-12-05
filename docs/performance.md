@@ -57,7 +57,14 @@ where the data is sent through the model multiple times instead of just once.
     
 ## Predicting recommendations
 The data loading time factors into the percentages given (same reasoning as for
-testing).
+testing). When using multiple workers the RAM usage increases a little.
+When predicting on the GPU the RAM usage (using ``--ram-efficient true``) was found
+to be around 16 GB, predicting on genomes in a range of ~120 Mbp to ~2.2 Gbp. When
+predicting on the CPU instead (also using ``--ram-efficient true``) the RAM usage was
+found to be around 4 GB, also predicting on genomes in a range of ~120 Mbp to ~2.2 Gbp.
+This is a result of PyTorch's and Lightning's method to push the model to the GPU.
+Predicting on the CPU takes around 3 times longer than on the GPU.
+     
 >**Warning**: It isn't possible to predict on multiple devices, since the
 > DistributedDataParallel (DDP) strategy copies the script/program
 > to each device, resulting in Predmoter trying to write the predictions h5

@@ -244,7 +244,7 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
     There are two dataset classes, that can be used by Predmoter:
 
         1. PredmoterSequence:
-            - argument: ``--ram-efficient false`` (default)
+            - argument: ``--ram-efficient false``
             - compresses all data and stores it in RAM
             - takes time, depending on the dataset size a significant amount of time,
               (the longest tested around 1.5 h), before training to process all the data
@@ -252,7 +252,7 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
             - training is faster afterwards, since the data was already processed
 
         2. PredmoterSequence2:
-            - argument: ``--ram-efficient true``
+            - argument: ``--ram-efficient true`` (default)
             - reads data directly from the hard-drive/file for each chunk
             - takes less time (the longest tested around 15 min) before the training to process the data
             - slows down training a bit as the data is always reprocessed at each get_item call

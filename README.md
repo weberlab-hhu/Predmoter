@@ -272,7 +272,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 ```
      
 ### 4.5 Inference <a id="45-inference"></a>
->IMPORTANT: Models trained on a GPU can be used to generate predictions on the CPU.
+> **IMPORTANT**: Models trained on a GPU can be used to generate predictions on the CPU.
 > The CPU predictions will be the same as the GPU predictions would be. Predicting
 > on the CPU will take longer.
     

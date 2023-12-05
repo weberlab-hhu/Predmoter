@@ -110,7 +110,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
     outfile = f"{file_stem(input_data[0])}_predictions.h5"
     out_filepath = os.path.join(args.output_dir, outfile)
     if os.path.exists(out_filepath):
-        raise OSError(f"the predictions output file {outfile} exists in {args.output_dir},"
+        raise OSError(f"the predictions output file {outfile} exists in your output directory,"
                       f" please move or delete it")
 
     # Convert fasta to h5
@@ -133,7 +133,7 @@ def predict(args, input_data, seq_len, pin_mem, strategy, temp_dir=None):
                                 batch_size=args.batch_size, shuffle=False,
                                 pin_memory=pin_mem, num_workers=args.num_workers)
     rank_zero_info("Predicting started.")
-    trainer.predict(model=hybrid_model, dataloaders=predict_loader)
+    trainer.predict(model=hybrid_model, dataloaders=predict_loader, return_predictions=False)
 
     if args.output_format is not None:
         Converter(os.path.join(args.output_dir, f"{file_stem(args.filepath)}_predictions.h5"),
@@ -144,12 +144,14 @@ def main():
     pp = PredmoterParser()
     args = pp.get_args()
     if args.mode == "train" and args.resume_training:
-        epochs_trained = torch.load(args.model)["epoch"]
+        # load onto CPU: torch.load(<something>, map_location=lambda storage, loc: storage)
+        epochs_trained = torch.load(args.model, map_location=lambda storage, loc: storage)["epoch"]
         if epochs_trained >= (args.epochs - 1):
             raise ValueError(f"when resuming training, the chosen number of epochs need to be > epochs "
                              f"already trained, the model {args.model} already trained {(epochs_trained + 1)}")
     if args.resume_training or args.mode in ["test", "predict"]:
-        args.datasets = torch.load(args.model)["hyper_parameters"]["datasets"]
+        args.datasets = torch.load(args.model,
+                                   map_location=lambda storage, loc: storage)["hyper_parameters"]["datasets"]
 
     # Logging
     # ----------------------

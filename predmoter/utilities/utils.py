@@ -4,6 +4,7 @@ import sys
 import glob
 import time
 import numpy as np
+import torch
 import h5py
 from collections import Counter
 from lightning.pytorch.utilities import rank_zero_only  # don't log twice while training on multiple GPUs
@@ -194,7 +195,9 @@ def init_model(args, seq_len, bases, load_from_checkpoint: bool):  # args = Pred
         # if something ever changes in the nucleotide encoding,
         # bases of the input files == model input_size need to be checked here
         rank_zero_info(f"Chosen model checkpoint: {args.model}")
-        model = LitHybridNet.load_from_checkpoint(args.model, seq_len=seq_len)
+        device = args.device if args.device == "cpu" else "cuda"
+        model = LitHybridNet.load_from_checkpoint(checkpoint_path=args.model,
+                                                  seq_len=seq_len, map_location=torch.device(device))
         rank_zero_info(f"Model's dataset(s): {', '.join(args.datasets)}.")
     else:
         rank_zero_info(f"Chosen dataset(s): {', '.join(args.datasets)}.")
