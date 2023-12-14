@@ -247,7 +247,7 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
             - argument: ``--ram-efficient false``
             - compresses all data and stores it in RAM
             - takes time, depending on the dataset size a significant amount of time,
-              (the longest tested around 1.5 h), before training to process all the data
+              (the longest tested around 2 h), before training to process all the data
             - the data processing time is multiplied by the number of devices used to train on
             - training is faster afterwards, since the data was already processed
 
@@ -256,12 +256,12 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
             - reads data directly from the hard-drive/file for each chunk
             - takes less time (the longest tested around 15 min) before the training to process the data
             - slows down training a bit as the data is always reprocessed at each get_item call
+            - very effective for testing and predicting as the data will need to be processed only once
             - extremely RAM efficient
             - Warning: Don't move the input data while Predmoter is running.
 
     (see performance.md in docs for more details)
     """
-    # mention test/predict behavior
     if ram_efficient:
         return PredmoterSequence2(h5_files, type_, dsets, seq_len, blacklist)
     return PredmoterSequence(h5_files, type_, dsets, seq_len, blacklist)

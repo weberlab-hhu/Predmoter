@@ -74,8 +74,8 @@ def check_seqids(h5df, bl_chroms):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Add mask/blacklist regions",
-                                     description="Add 'data/blacklist' to training/validation and/or test h5 files to"
-                                                 "mask non-nuclear and scaffold regions, if the assembly doesn't"
+                                     description="Add 'data/blacklist' to training/validation and/or test h5 files to "
+                                                 "mask non-nuclear and scaffold regions, if the assembly doesn't "
                                                  "only contain scaffolds/contigs.",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-i", "--input-json", type=str, default=None, required=True,
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true", help="overwrite existing blacklist")
     parser.add_argument("--write-text-file", type=str, default=None,
                         help="when adding a text file name, the program will just output this text file with one "
-                             "flagged chromosome/sequence ID per line (can be used as blachlist file for "
+                             "flagged chromosome/sequence ID per line (can be used as blacklist file for "
                              "convert2coverage.py)")
     args = parser.parse_args()
 

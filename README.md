@@ -248,6 +248,8 @@ using different hardware than before.
     
 ### 4.4 Testing <a id="44-testing"></a>
 Testing will be applied to all h5 files individually in ``<input_directory>/test``.    
+When testing on the CPU, the results very slightly differ from the GPU results
+(differences occurred after the third/fourth decimal place).    
 **Outputs:**
 ```raw
 <output_directory>  
@@ -272,9 +274,13 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 ```
      
 ### 4.5 Inference <a id="45-inference"></a>
-> **IMPORTANT**: Models trained on a GPU can be used to generate predictions on the CPU.
-> The CPU predictions will be the same as the GPU predictions would be. Predicting
-> on the CPU will take longer.
+> **IMPORTANT**: Models trained on a GPU can be used to generate predictions on the
+> CPU. The CPU predictions will be the same as the GPU predictions would be.
+> Predicting on the CPU will take longer.    
+> (*Side Note*: Since the results slightly differ when testing on the CPU and the
+> network's predictions are rounded to integers, it's likely that there are slight
+> differences in CPU and GPU predictions that, due to the rounding, do **not**
+> affect the final results.)
     
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on

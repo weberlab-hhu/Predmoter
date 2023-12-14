@@ -194,7 +194,8 @@ class Converter:
         if is_negative:
             if is_last:
                 # start padding: e.g. start_ends[strand_idxs[0]] = [102642, 85536], np.diff: -17106
-                # robust against chromosomes being divisible by seq_len
+                # robust against chromosomes being divisible by seq_len (see custom_flip for context
+                # on where padded bases are located)
                 start_padding = -np.diff(self.infile["data/start_ends"][strand_idxs[0]]).item()
                 return self.custom_flip(array, start_padding, self.seq_len)
             return np.flipud(array)
@@ -244,7 +245,7 @@ class Converter:
         """Extract start and end indices from an array.
 
         E.g. array: [1, 1, 1, 2, 3, 3, 9, 9, 9, 0, 0], starts: [0, 3, 4, 6, 9], ends: [3, 4, 6, 9, 11]
-        The filler value -1, denoting gaps (N) and padding, is excluded.
+        The filler value -1, denoting padding, is excluded.
         """
         starts = np.array([], dtype=np.int32)  # unlikely to have a chromosome this big else change to float64
         ends = np.array([], dtype=np.int32)

@@ -87,7 +87,7 @@ class LitHybridNet(pl.LightningModule):
         # Transposed CNN part:
         # ----------------------
         self.up_layer_list = nn.ModuleList()  # up part of the U-net
-        out_pad = 0 if (self.kernel_size + self.step) % 2 == 0 else 1
+        out_pad = self.compute_output_padding(self.step, self.dilation, self.kernel_size)
 
         for layer in range(cnn_layers, 0, -1):  # count layers backwards
             l_in = self.seq_len / self.step ** layer
@@ -268,6 +268,17 @@ class LitHybridNet(pl.LightningModule):
         return padding
 
     @staticmethod
+    def compute_output_padding(stride, dilation, kernel_size):
+        if dilation % 2 == 0 and kernel_size % 2 == 0:
+            if (stride + kernel_size) % 2 == 0:
+                return 1
+            return 0
+        else:
+            if (stride + kernel_size) % 2 == 0:
+                return 0
+            return 1
+
+    @staticmethod
     def trans_padding(l_in, l_out, stride, dilation, kernel_size, output_pad):
         """Padding formula for TransposeConv1d.
 
@@ -359,12 +370,31 @@ class LitHybridNet(pl.LightningModule):
 
         3-dimensional tensors are unpacked into 2-dimensional tensors, e.g. (3, 500, 2) gets
         unpacked to (6, 500). It works like torch.squeeze() for tensors with the size (i, j, 1).
+        The resulting tensors are interspersed.
 
             Args:
                 tensor: 'torch.tensor', input tensor of 3 dimensions
 
             Returns:
                 tensor: 'torch.tensor', tensor of 2 dimensions
+
+        Example:
+                The input tensor first column could be ATAC-seq data, the second ChIP-seq.
+                The output tensors first and third row would then be the ATAC-seq data,
+                the second and fourth ChIP-seq data.
+
+                input_tensor([[[2, 1],
+                               [3, 4],
+                               [0, 9]],
+
+                              [[6, 4],
+                               [8, 2],
+                               [7, 7]]])
+
+                 output_tensor([[2, 3, 0],
+                                [1, 4, 9],
+                                [6, 8, 7],
+                                [4, 2, 7]])
         """
 
         tensor = tensor.transpose(1, 2)
