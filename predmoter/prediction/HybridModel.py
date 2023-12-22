@@ -269,6 +269,21 @@ class LitHybridNet(pl.LightningModule):
 
     @staticmethod
     def compute_output_padding(stride, dilation, kernel_size):
+        """Computes the output padding applied to transposed convolutional layers. It is also
+        used to compute the padding for those layers (see the 'trans_padding' formula). A special case
+        found during trial runs was that in the case of an even dilation and an even kernel size, the
+        normal rule: 'When the sum of stride and kernel size is even, the output padding is 0 and 1 otherwise.',
+        needed to be flipped.
+            Args:
+                stride: 'int', strides/steps of kernel points
+                dilation: 'int', spacing between kernel points
+                kernel_size: 'int'
+
+            Returns:
+                output padding: 'int', either 0 or 1, special additional padding needed for transposed
+                    convolutional layers to achieve multiplication "without remainder"
+                    of sequence length, e.g. input seq_len: 5, stride: 2, expected/necessary output seq_len: 10
+        """
         if dilation % 2 == 0 and kernel_size % 2 == 0:
             if (stride + kernel_size) % 2 == 0:
                 return 1

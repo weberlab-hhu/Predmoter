@@ -19,7 +19,7 @@ def get_metric(h5df, metric, key):
         metrics.append(met)
 
     if metric == "mean":
-        np.mean(np.array(metrics), axis=0)
+        return np.mean(np.array(metrics), axis=0)
     return np.median(np.array(metrics), axis=0)
 
 

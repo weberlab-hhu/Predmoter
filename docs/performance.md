@@ -89,11 +89,12 @@ Predmoter version 0.3.2. The exact versions of the other packages used can be fo
 [here](../benchmarking_package_versions_freeze.txt).    
 Depending on the model used, there is always a slight fluctuation in the prediction
 and conversion to bigWig or bedGraph files. Two different models BiHybrid_04 and
-the combined model were used (see [here]() to download these models). The BiHybrid_04
-model can predict ATAC-seq cooverage and the combined model ATAC- and ChIP-seq
-coverage. Some genome assemblies were highly fragmented, on contig or scaffold
-level, increasing the number of subsequences. Since inference and conversion to
-bigWig or bedGraph files is dependent on the amount of data, so the number of
+the combined model were used (see
+[here](https://github.com/weberlab-hhu/predmoter_models) to download these models).
+The BiHybrid_04 model can predict ATAC-seq cooverage and the combined model ATAC-
+and ChIP-seq coverage. Some genome assemblies were highly fragmented, on contig or
+scaffold level, increasing the number of subsequences. Since inference and conversion
+to bigWig or bedGraph files is dependent on the amount of data, so the number of
 subsequences, that was used to quantify the wall time.
      
 ### Conversion from fasta to h5 files (Helixer)

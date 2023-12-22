@@ -2,6 +2,8 @@ import argparse
 import os
 import warnings
 
+import torch.cuda
+
 from predmoter.core.constants import PREDMOTER_VERSION
 
 
@@ -141,7 +143,7 @@ class PredmoterParser(BaseParser):
                                              "devices have to be on the same machine (leave at default "
                                              "for test/predict)")
         self.trainer_group.add_argument("--num-workers", type=int, default=0,
-                                        help="how many subprocesses to use for data loading")
+                                        help="how many subprocesses to use for data loading (number of CPU cores)")
         self.trainer_group.add_argument("-e", "--epochs", type=int, default=5,
                                         help="number of training runs; Attention: max_epochs, so when training "
                                              "for 2 epochs and then resuming training for 4 additional epochs, "
@@ -221,6 +223,21 @@ class PredmoterParser(BaseParser):
 
         assert args.device in ["cpu", "gpu"], \
             "valid devices are cpu or gpu, Predmoter is not configured to work on other devices"
+
+        if args.device == "gpu":
+            assert torch.cuda.is_available(), "there seems to be no GPU available on your system for PyTorch to " \
+                                              "use, please set '--device cpu' or check your system"
+            assert torch.cuda.device_count() >= args.num_devices, \
+                f"the chosen number of GPUs ({args.num_devices}) is higher than the available amount of GPUs " \
+                f"({torch.cuda.device_count()}), please choose a lower number with '--num-devices'"
+        else:  # device = CPU
+            assert os.cpu_count() >= args.num_devices, \
+                f"the chosen number of CPU cores ({args.num_devices}) is larger than the available number of " \
+                f"CPU cores ({os.cpu_count()}), please choose a lower number with '--num-devices'"
+
+        assert os.cpu_count() >= args.num_workers, \
+            f"the chosen number of workers ({args.num_workers}) is larger than the available number of CPU cores " \
+            f"({os.cpu_count()}), please choose a lower number with '--num-workers'"
 
         if args.mode != "train":
             assert args.num_devices == 1, "testing/predicting should be done on 1 device only to ensure " \

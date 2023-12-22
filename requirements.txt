@@ -5,4 +5,4 @@ torch>=1.13.0
 lightning>=2.0.0
 helixer @ git+https://github.com/weberlab-hhu/Helixer@main
 pyBigWig>=0.3.0
-
+pytest

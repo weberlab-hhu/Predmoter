@@ -6,7 +6,7 @@ base-wise for plant species.
      
 Pretrained models can be found at: https://github.com/weberlab-hhu/predmoter_models
 (see also [4.5 Inference](#45-inference) if interested in predicting with Predmoter).
-[Instructions for basic code tests](predmoter/testdata/README.md) are provided.
+[Instructions for code tests](predmoter/test/README.md) are provided.
     
 ## Table of contents
 1. [Disclaimer](#1-disclaimer)
@@ -47,8 +47,9 @@ more context, partly improving the ATAC-seq predictions.
 For realistically sized datasets, a GPU will be necessary for acceptable performance.
 (Predictions can be generated on a CPU with the
 [available models](https://github.com/weberlab-hhu/predmoter_models), but it will
-take a lot longer. The CPU predictions will be the same as the GPU predictions
-would be.)
+take around three times longer. The CPU predictions will be the same as the GPU
+predictions would be. See [here](docs/performance.md) for more information about
+performance.)
    
 The example below and all provided models should run on an Nvidia GPU with 11GB
 Memory (here a GTX 1080 Ti). The CPU used was E5-2640v4 (Broadwell).   

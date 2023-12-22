@@ -19,10 +19,10 @@ artificial special cases to test:
   training and/or testing.
 
 The files ``train_data_2.h5``, ``train_data_4.h5``and ``train_data_5.h5`` come with
-a corresponding sequence report file ``<file>_sequence_report.jsonl``, which can be
+a corresponding sequence report file ``<file>_sequence_report.jsonl``, which was
 used to create the ``data/blacklist`` dataframe for ``train_data_4.h5`` and
-``train_data_5.h5`` is used to test adding this dataframe to ``train_data_2.h5`` via
-[add_blacklist.py](../../side_scripts/add_blacklist.py).
+``train_data_5.h5``. The sequence report for ``train_data_2.h5`` is used to test
+adding this dataframe to it via [add_blacklist.py](../../side_scripts/add_blacklist.py).
 
      
 | File           | Artificial dataset prefixes | Subsequences            | Artificial special cases                                                             |
@@ -38,102 +38,5 @@ used to create the ``data/blacklist`` dataframe for ``train_data_4.h5`` and
 | predict_data_1 | /                           | 16                      | padded bases, 1 gap                                                                  |
 | predict_data_2 | /                           | 10                      | padded bases, 1 gap                                                                  |
     
-Scripts for testing Predmoter will follow soon. In the meantime there are 5 major
-tests that can be performed. The most important test is the [third](#3-predicting).
-    
-# Tests <a id="tests"></a>
-## 1. Training <a id="1-training"></a>
-```bash
-# create necessary directory structure
-mkdir <input_directory>/train
-mkdir <input_directory>/val
-
-# copy the test data
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/train_data* <input_directory>/train
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/val_data* <input_directory>/val
-
-# train with default parameters
-Predmoter.py -m train -i <input_directory> -o <output_directory> -e 2 -b 10
-# optional:
-# --seed <seed> --prefix <prefix> --device [gpu or cpu] [model configurations]
-
-# test resume training
-Predmoter.py -m train -i <input_directory> -o <output_directory> -e 4 \
--b 10 --resume-training
-```
-The output should be two files: ``<prefix_>predmoter.log``, containing important
-information about the training procedure, and ``<prefix_>metrics.log``, containing the
-metrics (avg_val_loss, avg_val_accuracy, avg_train_loss, avg_train_accuracy) per
-epoch.
-> The metrics are just test cases and don't reflect the actual results when
-> using non-artificial data. If any memory issues/errors occur, consider downsizing
-> the network, e.g., ``--hidden-size 32`` and ``--filter-size 32``. The same prefix
-> (when a prefix was chosen before) and output directory need to be selected when
-> resuming training
-> (see [here](https://github.com/weberlab-hhu/Predmoter#432-resume-training) for
-> more information).
-    
-## 2. Testing <a id="2-testing"></a>
-```bash
-# create necessary directory structure
-mkdir <input_directory>/test
-
-# copy the test data
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/train_data* <input_directory>/test
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/val_data* <input_directory>/test
-
-# test
-Predmoter.py -m test -i <input_directory> -o <output_directory> -b 10 --model <model>
-```
-The model used for testing the test mode of Predmoter can either be a model generated
-when testing the train mode of Predmoter or use one of the available
-[pretrained models](https://github.com/weberlab-hhu/predmoter_models). The output
-should be two files: ``<prefix_>predmoter.log``, containing important
-information about the testing procedure, and ``<prefix_>test_metrics.log``, containing
-the avg_val_loss and avg_val_accuracy per dataset the chosen model can predict,
-if the model can predict multiple datasets the total loss and accuracy are also
-included.
-    
-### 3. Predicting <a id="3-predicting"></a>
-```bash
-Predmoter.py -m predict \
--f <path_to_predmoter>/Predmoter/predmoter/testdata/pred_data.fa \
---species Species_artificialis -o <output_directory> -b 10 --model <model>
-
-# test prediction on a h5 file
-Predmoter.py -m predict \
--f <path_to_predmoter>/Predmoter/predmoter/testdata/pred_data_1.h5 \
--o <output_directory> -b 10 --model <model>
-# using pred_data_2.h5 is also possible
-```
-Again, the model used for testing the test mode of Predmoter can either be a model
-generated when testing the train mode of Predmoter or use one of the available
-[pretrained models](https://github.com/weberlab-hhu/predmoter_models). The output
-should be two files: ``<prefix_>predmoter.log``, containing important
-information about the prediction procedure, and ``<input_file_basename>_predictions.h5``
-(see [here](https://github.com/weberlab-hhu/Predmoter#45-inference) for more
-information). Optionally, a bigWig or bedGraph file will be created per dataset
-when using the option ``-of [bg or bw]``.
-    
-## 4. Conversion <a id="4-conversion"></a>
-```bash
-convert2coverage.py -i <output_directory>/pred_data_predictions.h5 \
--o <output_directory> -of [bw or bg] --basename pred_data
-```
-The output should be one bigWig or bedGraph file per dataset predicted and
-the ``<prefix_>predmoter.log`` file, containing important information about the
-conversion procedure.
-
-## 5. Flagging subsequences <a id="5-flagging-subsequences"></a>
-```bash
-# copy files
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/train_data_2.h5 <output_directory>
-cp <path_to_predmoter>/Predmoter/predmoter/testdata/train_data_2_sequence_report.jsonl \
-<output_directory>
-
-python3 <path_to_predmoter>/Predmoter/side_scripts/add_blacklist.py \
--i <output_directory>/train_data_2_sequence_report.jsonl \
--h5 <output_directory>/train_data_2.h5
-```
-The information about flagged sequences will be added to the give h5 file under the
-dataframe name ``data/blacklist``.
+Tests for Predmoter are performed using [test.py](../test/test.py). Instructions
+on how to execute and customize tests can be found [here](../test/README.md).

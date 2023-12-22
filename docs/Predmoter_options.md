@@ -51,7 +51,7 @@
 | --batch-size/-b | batch size for training, validation, test or prediction sets                                                                                                                     | 120              |
 | --device        | device to train on                                                                                                                                                               | gpu              |
 | --num-devices   | number of devices to train on (see [documentation about performance](performance.md)) , devices have to be on the same machine (leave at default for test/predict)               | 1                |
-| --num-workers   | how many subprocesses to use for data loading                                                                                                                                    | 0                |
+| --num-workers   | how many subprocesses to use for data loading (number of CPU cores)                                                                                                              | 0                |
 | --epochs/-e     | number of training runs; **Attention:** max_epochs, so when training for 2 epochs and then resuming training (``--resume-training``) for 4 additional epochs, you need ``-e 6``  | 5                |
 
 ## Convert to coverage

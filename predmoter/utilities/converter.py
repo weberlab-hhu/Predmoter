@@ -33,7 +33,10 @@ class Converter:
             self.seq_len = self.infile["data/X"][:1].shape[1]
         else:
             self.seq_len = self.infile["prediction/predictions"][:1].shape[1]
-        self.blacklisted_chromosomes = bl_chroms if bl_chroms is None else np.loadtxt(bl_chroms, dtype=str, usecols=0)
+        # np.atleast_1d() in case there is just one sequence ID to blacklist which would otherwise
+        # result in a 0-dimensional array
+        self.blacklisted_chromosomes = bl_chroms if bl_chroms is None \
+            else np.atleast_1d(np.loadtxt(bl_chroms, dtype=str, usecols=0))
         self.chromosome_map = self.chrom_map(self.infile, self.blacklisted_chromosomes)
         self.last_chromosome = list(self.chromosome_map.keys())[-1]
         self.last_start = None
@@ -118,22 +121,16 @@ class Converter:
                         array = self.get_data(value_dict["+"][j:j + n], i)
                     elif self.strand == "-":
                         # since the - strand is in reverse order, the indices have to be sorted for h5py
-                        array = self.get_data(np.sort(value_dict["-"][j:j + n]), i, True, is_last)
+                        array = self.get_data(np.sort(value_dict["-"][j:j + n]), i, True)
                     else:
                         pos_strand_idxs = value_dict["+"][j:j + n]
                         neg_strand_idxs = np.sort(value_dict["-"][j:j + n])
-                        array = np.mean(np.concatenate(
-                            [self.get_data(pos_strand_idxs, i).reshape((self.seq_len * len(pos_strand_idxs), 1)),
-                             self.get_data(neg_strand_idxs, i, True, is_last).reshape(
-                                 (self.seq_len * len(neg_strand_idxs), 1))],
-                            axis=1), axis=1).round(decimals=0)
+                        array = np.mean(np.array([self.get_data(pos_strand_idxs, i),
+                                                  self.get_data(neg_strand_idxs, i, True)]), axis=0).round(decimals=0)
 
                     # Coordinates and values
                     # -------------------------
                     values = self.unique_duplicates(array)
-                    # only exclude -1 afterwards, otherwise [2, 1, -1, 1] would be fused to [2, 1]
-                    # if -1 represents a gap (N) the value after should remain, e.g. [2, 1, 1]
-                    values = values[values > -1]
                     starts, ends = self.get_start_ends(array)
 
                     # Special cutting cases
@@ -176,7 +173,7 @@ class Converter:
             if self.output_format == "bw":
                 bw.close()
 
-    def get_data(self, strand_idxs, dset_idx, is_negative=False, is_last=False):
+    def get_data(self, strand_idxs, dset_idx, is_negative=False):
         """Return a prediction dataset array.
 
         Specific indices (i.e. the indices of the requested strand) and the requested dataset of
@@ -192,14 +189,8 @@ class Converter:
             array = np.array(self.infile["prediction/predictions"][strand_idxs, :, dset_idx],
                              dtype=np.float32).flatten()
         if is_negative:
-            if is_last:
-                # start padding: e.g. start_ends[strand_idxs[0]] = [102642, 85536], np.diff: -17106
-                # robust against chromosomes being divisible by seq_len (see custom_flip for context
-                # on where padded bases are located)
-                start_padding = -np.diff(self.infile["data/start_ends"][strand_idxs[0]]).item()
-                return self.custom_flip(array, start_padding, self.seq_len)
-            return np.flipud(array)
-        return array
+            array = np.flipud(array)
+        return array[array != -1]  # exclude padding
 
     @staticmethod
     def unique_duplicates(dataset_array):
@@ -210,51 +201,17 @@ class Converter:
         return dataset_array[dataset_array != np.append(dataset_array[1:], -3)]
 
     @staticmethod
-    def custom_flip(array, start_padding, end_padding):
-        """Flip differently for negative strand values containing the last chunk.
-
-        The mini_arrays are example predictions for the individual strands. Predictions for each strand
-        are rarely identical.
-        Example:
-            (the -1 denote the padding)
-            positive strand
-                chunk                0                  1                  2
-                mini_array    [1, 2, 3, 2, 4]    [8, 9, 2, 2, 8]    [2, 2, 5, -1, -1]
-                start/end           0/5                5/10              10/13
-
-            negative strand
-                chunk                3                    4                  5
-                mini_array    [4, 2, 2, -1, -1]    [8, 2, 1, 8, 8]    [4, 2, 3, 2, 1]
-                start/end          13/10                10/5                5/0
-
-        The last array start/end wise of the negative strand in this example is the chunk
-        with the index 3. Since the negative strand needs to be flipped vertically, the
-        result for the last strand would be, that the padding is at the start, e.g.
-        [-1, -1, 2, 2, 4], instead of the desired [2, 2, 4, -1, -1]. Therefore the array is
-        rearranged and flipped:
-            negative strand array: [4, 2, 2, -1, -1, 8, 2, 1, 8, 8, 4, 2, 3, 2, 1]
-            flip part after padding: [1, 2, 3, 2, 4, 8, 8, 1, 2, 8]
-            add flipped part before padding: [1, 2, 3, 2, 4, 8, 8, 1, 2, 8, 2, 2, 4]
-            add padding back: [1, 2, 3, 2, 4, 8, 8, 1, 2, 8, 2, 2, 4, -1, -1]
-        """
-        return np.concatenate([np.flipud(array[end_padding:]), np.flipud(array[:start_padding]),
-                               array[start_padding:end_padding]])
-
-    @staticmethod
     def get_start_ends(dataset_array):  # flat/1d array
         """Extract start and end indices from an array.
 
         E.g. array: [1, 1, 1, 2, 3, 3, 9, 9, 9, 0, 0], starts: [0, 3, 4, 6, 9], ends: [3, 4, 6, 9, 11]
-        The filler value -1, denoting padding, is excluded.
+        The filler value -1, denoting padding, is excluded beforehand in get_data().
         """
         starts = np.array([], dtype=np.int32)  # unlikely to have a chromosome this big else change to float64
         ends = np.array([], dtype=np.int32)
 
         for n in np.unique(dataset_array):
-            if n == -1:
-                continue
-            else:
-                idxs = np.where(dataset_array == n)[0]
-                starts = np.append(starts, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1) + 1, 0, 0)])
-                ends = np.append(ends, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1), 0, -1)] + 1)
+            idxs = np.where(dataset_array == n)[0]
+            starts = np.append(starts, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1) + 1, 0, 0)])
+            ends = np.append(ends, idxs[np.insert(np.flatnonzero(np.diff(idxs) > 1), 0, -1)] + 1)
         return np.sort(starts), np.sort(ends)
