@@ -72,10 +72,12 @@ script ``setup_qsubs.py`` in ``side_scripts``.
     
 > **WARNING:** Expected virtual environment (env) names, locations and/or branches by
 > the qsub files:
->- **Helixer:** env: ``<hpc_home_directory/helix_venv>``
+>- **Helixer:** env: ``<hpc_home_directory>/helix_venv``
 >- **deepTools:** env: ``<hpc_home_directory>/deeptools_env``
 >- **RNAsleek:** repository branch: flexi
 >- **HPC-Project:** HelixerOpt
+>- **Helixer repository**: ``<hpc_home_directory>/Helixer/Helixer``
+>- **GeenuFF repository**: ``<hpc_home_directory>/Helixer/GeenuFF``
      
 ### 3.0. Setup job files
 **Tools:** RNAsleek (flexi branch), **helper_scripts:** setup_qsubs.py  
@@ -266,7 +268,7 @@ organisms="Athaliana Mtruncatula Osativa Zmays"
 
 for org in $organisms; do
         cd $mydir/$org
-        ls scripts/fetchS* |xargs -n1 -P2 -I% bash % 2> fetch.err 1> fetch.out
+        ls scripts/fetch* |xargs -n1 -P2 -I% bash % 2> fetch.err 1> fetch.out
 done
 
 # Activate sleek_venv (RNAsleek) before and use ./multi_fetch.sh &

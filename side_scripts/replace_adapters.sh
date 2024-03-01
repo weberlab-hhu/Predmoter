@@ -1,6 +1,6 @@
 #!/bin/bash
 
-while getopts o:s: flag
+while getopts o: flag
 do
     case "${flag}" in
         o) organism=${OPTARG};;
