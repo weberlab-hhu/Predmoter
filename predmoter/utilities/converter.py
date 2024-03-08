@@ -14,7 +14,7 @@ log = logging.getLogger("PredmoterLogger")
 
 class Converter:
     def __init__(self, infile, output_dir, outformat, basename, strand, experimental=False,
-                 dsets=None, bl_chroms=None):
+                 dsets=None, bl_chroms=None, window_size=None):
         super(Converter, self).__init__()
         self.infile = h5py.File(infile, "r")
         self.output_format = "bw" if outformat in ["bw", "bigwig"] else "bg.gz"
@@ -28,7 +28,8 @@ class Converter:
             self.dsets = dsets
         else:
             self.dsets = [dset.decode() for dset in self.infile["prediction/datasets"][:]]
-        self.outfiles = self.get_output_files(output_dir, basename, bl_chroms)
+        self.window_size = window_size
+        self.outfiles = self.get_output_files(output_dir, basename, bl_chroms, window_size)
         if experimental:
             self.seq_len = self.infile["data/X"][:1].shape[1]
         else:
@@ -47,10 +48,15 @@ class Converter:
         log.info("\n", extra={"simple": True})
         log.info(f"Starting conversion of the file {infile} to {outformat} file(s). "
                  f"The current commit is {GIT_COMMIT}.")
+        smooth = False if window_size is None else True
+        w_size = "" if window_size is None else f"with window size {window_size}"
+        exclude_bl = False if bl_chroms is None else True
+        log.info(f"Chosen converter options: exclude flagged sequences: "
+                 f"{exclude_bl}; smooth predictions {smooth} {w_size}")
         self.convert()
         log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
 
-    def get_output_files(self, output_dir, basename, bl_chroms):
+    def get_output_files(self, output_dir, basename, bl_chroms, window_size):
         """Create list of output files.
 
         Each dataset will get its own bigwig or bedgraph file. The predictions for the
@@ -59,9 +65,10 @@ class Converter:
         """
         strand = self.strand if self.strand is not None else "avg"
         bl = "" if bl_chroms is None else "_bl"
+        smooth = "" if window_size is None else "_smooth"
         outfiles = []
         for dset in self.dsets:
-            filename = f"{basename}_{dset}_{strand}_strand{bl}.{self.output_format}"
+            filename = f"{basename}_{dset}_{strand}_strand{bl}{smooth}.{self.output_format}"
             outfile = os.path.join(output_dir, filename)
             if os.path.exists(outfile):
                 raise OSError(f"the output file {filename} "
@@ -130,6 +137,8 @@ class Converter:
 
                     # Coordinates and values
                     # -------------------------
+                    if self.window_size is not None:
+                        array = self.smooth_predictions(array, window_size=self.window_size)  # smooth preds
                     values = self.unique_duplicates(array)
                     starts, ends = self.get_start_ends(array)
 
@@ -156,7 +165,7 @@ class Converter:
 
                     if self.output_format == "bw":
                         chrom_count = len(starts) - 1 if not is_last else len(starts)
-                        # bigwig datatypes: starts and ends: int, values: float
+                        # bigwig datatypes: starts and ends: int, values: float (required datatypes)
                         bw.addEntries([key.decode()] * chrom_count, starts[:split_end], ends=ends[:split_end],
                                       values=values[:split_end])
                     else:
@@ -178,8 +187,7 @@ class Converter:
 
         Specific indices (i.e. the indices of the requested strand) and the requested dataset of
         the predictions array is returned. The array is also flattened. The negative strand data
-        gets flipped vertically, e.g. [8, 2, 1] -> [1, 2, 8]. If it's the last iteration of the
-        chromosome indices (containing the last chunk) of the negative strand, a custom flip is used.
+        gets flipped vertically, e.g. [8, 2, 1] -> [1, 2, 8]. The -1 filler values are excluded.
         """
         if self.experimental:
             dset = self.dsets[dset_idx]
@@ -187,10 +195,16 @@ class Converter:
             array = np.around(np.mean(array, axis=2), 0).flatten()
         else:
             array = np.array(self.infile["prediction/predictions"][strand_idxs, :, dset_idx],
-                             dtype=np.float32).flatten()
+                             dtype=np.float32).flatten()  # the predictions are ints
         if is_negative:
             array = np.flipud(array)
         return array[array != -1]  # exclude padding
+
+    @staticmethod
+    def smooth_predictions(array, window_size):
+        """Smooth out the predictions with a 'running mean' and a given window size.
+        The specification 'mode=same' retains the original size of the array."""
+        return np.convolve(array, np.ones(window_size) / window_size, mode="same").round(decimals=0)
 
     @staticmethod
     def unique_duplicates(dataset_array):

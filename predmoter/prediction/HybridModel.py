@@ -261,7 +261,8 @@ class LitHybridNet(pl.LightningModule):
             Returns:
                 padding: 'int', padding needed to achieve division without remainder
                     of sequence length, e.g. input seq_len: 10, stride: 2, expected/
-                    necessary output seq_len: 5
+                    necessary output seq_len: 5; adds zero-padding, i.e. a padding of 3
+                    results in 3 zeros being added to both sides of the input tensor
         """
         padding = math.ceil(((l_out - 1) * stride - l_in + dilation * (kernel_size - 1) + 1) / 2)
         # math.ceil to  avoid rounding half to even/bankers rounding, only needed for even L_in
@@ -282,7 +283,9 @@ class LitHybridNet(pl.LightningModule):
             Returns:
                 output padding: 'int', either 0 or 1, special additional padding needed for transposed
                     convolutional layers to achieve multiplication "without remainder"
-                    of sequence length, e.g. input seq_len: 5, stride: 2, expected/necessary output seq_len: 10
+                    of sequence length, e.g. input seq_len: 5, stride: 2, expected/necessary output seq_len: 10;
+                    is only used to find the correct output shape, i.e. it does not add zero-padding to the
+                    output tensor
         """
         if dilation % 2 == 0 and kernel_size % 2 == 0:
             if (stride + kernel_size) % 2 == 0:
@@ -312,7 +315,10 @@ class LitHybridNet(pl.LightningModule):
             Returns:
                 padding: 'int', padding needed to achieve multiplication "without remainder"
                     of sequence length, e.g. input seq_len: 5, stride: 2, expected/
-                    necessary output seq_len: 10
+                    necessary output seq_len: 10; adds zero-padding with this formula:
+                    dilation * (kernel_size -1) - padding, i.e. with a dilation of 1, a kernel_size
+                    of 18 and a padding of 6 (result from this formula) the actual number of zeros
+                    applied to both sides of the input tensor is 11
         """
         padding = ((l_in - 1) * stride - l_out + dilation * (kernel_size - 1) + output_pad + 1) / 2
         return int(padding)

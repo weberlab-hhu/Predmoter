@@ -53,6 +53,9 @@ def train(args, input_data, seq_len, bases, pin_mem, strategy):
 
     # Initialize model
     # ----------------------
+    # SeedCallback's set_seed needs to be executed when resume_training is False before initializing the
+    # model, when resuming the old seed_state needs to be set after initializing the model and before the
+    # training starts (see callbacks.py)
     load_from_checkpoint = True if args.resume_training else False
     hybrid_model = init_model(args, seq_len, bases, load_from_checkpoint=load_from_checkpoint)
 

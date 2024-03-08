@@ -63,6 +63,7 @@ class PredmoterSequence(Dataset):
                   spacing=space, header=True, rank_zero=True)
 
         main_start = time.time()
+        start_idx = 0
 
         # Read in data
         # ------------------
@@ -103,15 +104,15 @@ class PredmoterSequence(Dataset):
                             Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
                         else:
                             Y.append(np.full((X.shape[0], X.shape[1], 1), -3, dtype=self.y_dtype))
-                    Y = self._encode_one(np.concatenate(Y, axis=2))
-                    mem_size += sum([sys.getsizeof(y) for y in Y])
-                    self.Y += Y
-                X = self._encode_one(X)
-                mem_size += sum([sys.getsizeof(x) for x in X])
-                self.X += X
-                chunks += len(X)
+                    self.Y += self._encode_one(np.concatenate(Y, axis=2))
+                chunks += X.shape[0]
+                self.X += self._encode_one(X)
             self.chunks.append(chunks)
+            end_idx = start_idx + chunks
+            mem_size = (sum([sys.getsizeof(x) for x in self.X[start_idx: end_idx]]) +
+                        sum([sys.getsizeof(y) for y in self.Y[start_idx: end_idx]]))
             self.total_mem_size.append(mem_size)
+            start_idx += chunks
 
             # Continue logging
             # ------------------
@@ -149,6 +150,7 @@ class PredmoterSequence2(Dataset):
     def __init__(self, h5_files, type_, dsets, seq_len, blacklist):
         super().__init__()
         self.h5_files = h5_files
+        self.h5dfs = [h5py.File(h5_file, "r") for h5_file in self.h5_files]
         self.type_ = type_
         self.dsets = dsets
         self.seq_len = seq_len
@@ -159,8 +161,7 @@ class PredmoterSequence2(Dataset):
 
     def __getitem__(self, idx):
         i, j = self.coords[idx]
-        h5df = h5py.File(self.h5_files[i], "r")
-        return self.create_data(h5df, j)
+        return self.create_data(self.h5dfs[i], j)
 
     def __len__(self):
         return self.coords.shape[0]
@@ -179,9 +180,8 @@ class PredmoterSequence2(Dataset):
         log_table(log, ["H5 files", "Chunks", "NGS datasets", "Processing time (min)"],
                   spacing=space, header=True, rank_zero=True)  # logging
         coords = np.empty((0, 2), dtype=int)
-        for i, h5_file in enumerate(self.h5_files):
+        for i, h5df in enumerate(self.h5dfs):
             file_start = time.time()
-            h5df = h5py.File(h5_file, "r")
             if h5df["data/X"].shape[1] != self.seq_len:
                 # in case of train/val/test data, just one predict file allowed
                 raise ValueError(f"all {self.type_} input files need to have the same sequence "
@@ -203,13 +203,14 @@ class PredmoterSequence2(Dataset):
                     coords = np.append(coords, np.concatenate([np.full((indices.shape[0], 1), fill_value=i),
                                                                indices.reshape(indices.shape[0], 1)], axis=1), axis=0)
                 num_ngs_dsets = sum([f"{dset}_coverage" in h5df["evaluation"].keys() for dset in self.dsets])
-                log_table(log, [file_stem(h5_file), chunks, num_ngs_dsets,
+                log_table(log, [file_stem(self.h5_files[i]), chunks, num_ngs_dsets,
                                 round((time.time() - file_start) / 60, ndigits=2)], spacing=space, rank_zero=True)
             else:
                 coords = np.concatenate([np.full((h5df["data/X"].shape[0], 1), fill_value=i),
                                          np.arange(h5df["data/X"].shape[0]).reshape(h5df["data/X"].shape[0], 1)],
                                         axis=1)
-                log_table(log, [file_stem(h5_file), h5df["data/X"].shape[0], "/", "/"], spacing=space, rank_zero=True)
+                log_table(log, [file_stem(self.h5_files[i]), h5df["data/X"].shape[0], "/", "/"],
+                          spacing=space, rank_zero=True)
 
         # logging end
         # -----------
@@ -230,12 +231,12 @@ class PredmoterSequence2(Dataset):
         Y = []
         for key in self.dsets:
             if f"{key}_coverage" in h5df["evaluation"].keys():
-                y = torch.from_numpy(h5df[f"evaluation/{key}_coverage"][idx]).float()  # shape: (seq_len, bam_files)
-                y = torch.mean(y, dim=1).round(decimals=2)  # avg of replicates, round to 2 digits
+                y = np.array(h5df[f"evaluation/{key}_coverage"][idx], dtype=np.float32)  # shape: (seq_len, bam_files)
+                y = np.around(np.mean(y, axis=1), 2)  # avg of replicates, round to 2 digits
                 Y.append(y)
             else:
-                Y.append(torch.full((self.seq_len,), -3).float())
-        return X, torch.stack(Y, dim=1)
+                Y.append(np.full((21384,), -3, dtype=np.float32))
+        return X, torch.from_numpy(np.vstack(Y).T)
 
 
 def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
@@ -254,8 +255,8 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
         2. PredmoterSequence2:
             - argument: ``--ram-efficient true`` (default)
             - reads data directly from the hard-drive/file for each chunk
-            - takes less time (the longest tested around 15 min) before the training to process the data
-            - slows down training a bit as the data is always reprocessed at each get_item call
+            - takes less time (the longest tested around 20 min) before the training to process the data
+            - slows down training as the data is always reprocessed at each get_item call
             - very effective for testing and predicting as the data will need to be processed only once
             - extremely RAM efficient
             - Warning: Don't move the input data while Predmoter is running.

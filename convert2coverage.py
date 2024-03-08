@@ -11,7 +11,7 @@ def main():
     args = pp.get_args()
     logging.config.dictConfig(get_log_dict(args.output_dir, args.prefix))
     Converter(args.input_file, args.output_dir, args.output_format, args.basename,
-              args.strand, args.experimental, args.dsets, args.bl_chroms)
+              args.strand, args.experimental, args.dsets, args.bl_chroms, args.window_size)
 
 
 if __name__ == "__main__":

@@ -270,6 +270,9 @@ class ConverterParser(BaseParser):
                                       "in the conversion, e.g., chloroplast or mitochondrial sequences; "
                                       "one chromosome ID per line in the text file, i.e. add_blacklist test files;"
                                       "the output files get 'bl' added at the end to identify blacklisting")
+        self.parser.add_argument("--window-size", type=int, default=None,
+                                 help="if specified will smooth out the raw predictions from the h5 file via a "
+                                      "'running mean' with the given window size; recommended window size: 150")
 
     def check_args(self, args):
         if not os.path.exists(args.input_file):
@@ -294,3 +297,4 @@ class ConverterParser(BaseParser):
         if args.experimental:
             assert args.dsets is not None, "datasets to convert have to be chosen for converting from" \
                                            " h5 files containing experimental coverage"
+            assert args.window_size is None, "smoothing can just be applied to predictions not experimental data"
