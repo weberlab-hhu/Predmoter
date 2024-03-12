@@ -91,7 +91,7 @@ def convert_to_table_line(spacing, contents):
     return "|".join(contents)
 
 
-def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=None):
+def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=None, simple=False):
     if h5_file is None:
         chromosomes = extract_chrom_lengths(chrom_file)
         encoded = False
@@ -121,8 +121,11 @@ def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=Non
     matrix = np.sum(matrices, axis=0)
     tn, fp, fn, tp = matrix.ravel()
     f1, precision, recall = compute_f1(tp, fp, fn)
-    print(f"{convert_to_table_line(20, ['F1', 'Precision', 'Recall', 'TP', 'FP', 'FN'])}\n"
-          f"{convert_to_table_line(20, [f1, precision, recall, tp, fp, fn])}")
+    if simple:
+        print(" ".join([str(item) for item in [f1, precision, recall, tp, fp, fn]]))
+    else:
+        print(f"{convert_to_table_line(20, ['F1', 'Precision', 'Recall', 'TP', 'FP', 'FN'])}\n"
+              f"{convert_to_table_line(20, [f1, precision, recall, tp, fp, fn])}")
 
 
 if __name__ == "__main__":
@@ -147,9 +150,11 @@ if __name__ == "__main__":
     parser.add_argument("--bl-file", type=str, default=None,
                         help=r"blacklist file; a text file containing the sequence/chromosome IDs to exclude in"
                              r"the computation; the IDs need to be line separated (\n) (one ID per line)")
+    parser.add_argument("--simple", action="store_true", help="non-fancy printing")
     args = parser.parse_args()
 
     if args.h5_file is None and args.chromosome_lengths is None:
         raise OSError("either a h5 file or a chromosome legths text file is required")
 
-    main(args.h5_file, args.chromosome_lengths, args.predicted_peaks, args.experimental_peaks, args.bl_file)
+    main(args.h5_file, args.chromosome_lengths, args.predicted_peaks,
+         args.experimental_peaks, args.bl_file, args.simple)

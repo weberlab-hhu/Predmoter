@@ -16,7 +16,8 @@ log = logging.getLogger("PredmoterLogger")
 class PredmoterSequence(Dataset):
     def __init__(self, h5_files, type_, dsets, seq_len, blacklist):
         super().__init__()
-        self.compressor = numcodecs.blosc.Blosc(cname="blosclz", clevel=9, shuffle=2)
+        self.compressor_x = numcodecs.blosc.Blosc(cname="lz4", clevel=9, shuffle=2)
+        self.compressor_y = numcodecs.blosc.Blosc(cname="lz4", clevel=9, shuffle=0)
         self.h5_files = h5_files
         self.type_ = type_
         self.chunks = []
@@ -35,9 +36,9 @@ class PredmoterSequence(Dataset):
 
     def __getitem__(self, idx):
         if self.type_ == "predict":
-            return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases))
-        return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases)), \
-            self._decode_one(self.Y[idx], self.y_dtype, shape=(self.seq_len, len(self.dsets)))
+            return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases), array_type="X")
+        return self._decode_one(self.X[idx], self.x_dtype, shape=(self.seq_len, self.bases), array_type="X"), \
+            self._decode_one(self.Y[idx], self.y_dtype, shape=(self.seq_len, len(self.dsets)), array_type="Y")
 
     def __len__(self):
         return sum(self.chunks)
@@ -101,12 +102,12 @@ class PredmoterSequence(Dataset):
                             y = np.array(h5df[f"evaluation/{key}_coverage"][i:i + n], dtype=self.y_dtype)
                             y = y[mask]
                             y = np.around(np.mean(y, axis=2), 2)  # avg of replicates, round to 2 digits
-                            Y.append(np.reshape(y, (y.shape[0], y.shape[1], 1)))
+                            Y.append(y)
                         else:
-                            Y.append(np.full((X.shape[0], X.shape[1], 1), -3, dtype=self.y_dtype))
-                    self.Y += self._encode_one(np.concatenate(Y, axis=2))
+                            Y.append(np.full((X.shape[0], X.shape[1]), -3, dtype=self.y_dtype))
+                    self.Y += self._encode_one(np.stack(Y, axis=2), "Y")
                 chunks += X.shape[0]
-                self.X += self._encode_one(X)
+                self.X += self._encode_one(X, "X")
             self.chunks.append(chunks)
             end_idx = start_idx + chunks
             mem_size = (sum([sys.getsizeof(x) for x in self.X[start_idx: end_idx]]) +
@@ -129,18 +130,23 @@ class PredmoterSequence(Dataset):
         else:
             rank_zero_info("\n", simple=True)
 
-    def _encode_one(self, array):
+    def _encode_one(self, array, array_type):
         """Compress array in RAM.
 
         The encoding is done per chunk of the array, so shuffling the chunks is possible
         during training. If the entire array of 1000 would be encoded, it would need to be
         decoded as one array as well, making shuffling/batching impossible.
         """
-        return [self.compressor.encode(arr) for arr in array]
+        if array_type == "Y":
+            return [self.compressor_y.encode(arr) for arr in array]
+        return [self.compressor_x.encode(arr) for arr in array]
 
-    def _decode_one(self, array, dtype, shape):
+    def _decode_one(self, array, dtype, shape, array_type):
         """Decode one compressed array into a pytorch float tensor."""
-        array = np.frombuffer(self.compressor.decode(array), dtype=dtype)
+        if array_type == "Y":
+            array = np.frombuffer(self.compressor_y.decode(array), dtype=dtype)
+        else:
+            array = np.frombuffer(self.compressor_x.decode(array), dtype=dtype)
         array = np.reshape(array, shape)
         array = np.array(array)  # without this line the array is not writeable
         return torch.from_numpy(array).float()
@@ -250,10 +256,10 @@ def get_dataset(h5_files, type_, dsets, seq_len, ram_efficient, blacklist):
             - takes time, depending on the dataset size a significant amount of time,
               (the longest tested around 2 h), before training to process all the data
             - the data processing time is multiplied by the number of devices used to train on
-            - training is faster afterwards, since the data was already processed
+            - training is a lot faster afterwards, since the data was already processed
 
         2. PredmoterSequence2:
-            - argument: ``--ram-efficient true`` (default)
+            - argument: ``--ram-efficient true`` (default, since it's good for testing and predicting)
             - reads data directly from the hard-drive/file for each chunk
             - takes less time (the longest tested around 20 min) before the training to process the data
             - slows down training as the data is always reprocessed at each get_item call

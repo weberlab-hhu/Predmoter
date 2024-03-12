@@ -159,7 +159,7 @@ achieved by using a seed. If no seed is provided Predmoter will choose a random
 seed. The seed state is saved each epoch and included in the saved model, so
 training can be resumed with the last seed state. Of course the same input data
 needs to be provided as well, the input files are always alphabetically sorted
-by Predmoter.
+by Predmoter. (helpful: [performance documentation](docs/performance.md))
 
 ```bash
 # start training  with default parameters

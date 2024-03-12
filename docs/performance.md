@@ -2,8 +2,9 @@
 Performance of Predmoter depends on hardware, batch size, number of datasets used
 (ATAC-seq, ChIP-seq, etc.), model configurations, number of devices/workers and the
 device itself. In general training, testing and predicting is way faster on one or
-multiple GPUs than on CPUs and faster with more workers and/or devices. A general
-rule of thumb is to use ``4 workers * number of devices``.
+multiple GPUs than on CPUs and faster with more workers in ram efficient mode and
+with zero workers when ``--ram-effiecient false``. A general rule of thumb is to
+use ``4 workers * number of devices`` when ``--ram-effiecient true``.
     
 ## The ram-efficient argument
 There are two dataset classes, that can be used by Predmoter:    
@@ -14,18 +15,21 @@ There are two dataset classes, that can be used by Predmoter:
      (the longest tested around 2 h), before training to process all the data
    - the data processing time and memory consumption is multiplied by the 
      number of devices used to train on
-   - training is faster afterwards, since the data was already processed
+   - training is a lot faster afterwards, since the data was already processed
      
      
 2. PredmoterSequence2:
-    - argument: ``--ram-efficient true`` (default) 
+    - argument: ``--ram-efficient true`` (default, since it's good for testing and predicting) 
     - reads data directly from the hard-drive/file for each chunk
     - takes less time (the longest tested around 15 min) before the training to process the data
-    - slows down training a bit as the data is always reprocessed at each get_item call
+    - slows down training as the data is always reprocessed at each get_item call
     - very effective for testing and predicting as the data will need to be processed only once
     - extremely RAM efficient
     - **Warning:** Don't move the input data while Predmoter is running.
-     
+ 
+>**Warning**: The training, testing and prediction recommendation 'percentages'
+> are outdated and will be adjusted later.
+    
 ## Training recommendations
 All percentages in this table were calculated using a specific setup (hardware,
 number of devices (here 2 NVIDIA GeForce 2080Ti for multiple devices tests), etc.)

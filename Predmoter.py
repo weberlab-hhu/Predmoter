@@ -165,7 +165,8 @@ def main():
     if args.num_devices > 1 and not args.ram_efficient:
         rank_zero_info(f"Hint: Using {args.num_devices} CPUs/GPUs to train on results in the creation of one "
                        f"dataset for each device. The data read in time and RAM consumption will be multiplied "
-                       f"by {args.num_devices}. Consider using the default --ram-efficient true.")
+                       f"by {args.num_devices}. Consider using --num-workers 0 for memory consumption and speed "
+                       f"improvements.")
 
     # Get input data
     # ----------------------

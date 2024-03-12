@@ -52,7 +52,7 @@ class Converter:
         w_size = "" if window_size is None else f"with window size {window_size}"
         exclude_bl = False if bl_chroms is None else True
         log.info(f"Chosen converter options: exclude flagged sequences: "
-                 f"{exclude_bl}; smooth predictions {smooth} {w_size}")
+                 f"{exclude_bl}; smooth predictions: {smooth} {w_size}")
         self.convert()
         log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
 
