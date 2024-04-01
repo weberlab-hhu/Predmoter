@@ -25,7 +25,9 @@ class Converter:
                 "doesn't seem to be the case here"
         self.strand = strand
         if experimental:
-            self.dsets = dsets
+            self.dsets = [dset for dset in dsets if f"{dset}_coverage" in self.infile["evaluation"].keys()]
+            assert len(self.dsets) > 0,\
+                f"the input file {infile} doesn't include any of the datasets: {', '.join(self.dsets)}"
         else:
             self.dsets = [dset.decode() for dset in self.infile["prediction/datasets"][:]]
         self.window_size = window_size
@@ -38,11 +40,6 @@ class Converter:
         # result in a 0-dimensional array
         self.blacklisted_chromosomes = bl_chroms if bl_chroms is None \
             else np.atleast_1d(np.loadtxt(bl_chroms, dtype=str, usecols=0))
-        self.chromosome_map = self.chrom_map(self.infile, self.blacklisted_chromosomes)
-        self.last_chromosome = list(self.chromosome_map.keys())[-1]
-        self.last_start = None
-        self.last_end = None
-        self.last_value = None
         self.experimental = experimental
         start = time.time()
         log.info("\n", extra={"simple": True})
@@ -51,8 +48,14 @@ class Converter:
         smooth = False if window_size is None else True
         w_size = "" if window_size is None else f"with window size {window_size}"
         exclude_bl = False if bl_chroms is None else True
-        log.info(f"Chosen converter options: exclude flagged sequences: "
+        log.info(f"Chosen/processed converter options: datasets to convert: {', '.join(self.dsets)}; "
+                 f"convert experimental data: {experimental}; exclude flagged sequences: "
                  f"{exclude_bl}; smooth predictions: {smooth} {w_size}")
+        self.chromosome_map = self.chrom_map(self.infile, self.blacklisted_chromosomes)
+        self.last_chromosome = list(self.chromosome_map.keys())[-1]
+        self.last_start = None
+        self.last_end = None
+        self.last_value = None
         self.convert()
         log.info(f"Conversion finished. It took {round(((time.time() - start) / 60), ndigits=2)} min.\n")
 
@@ -65,7 +68,7 @@ class Converter:
         """
         strand = self.strand if self.strand is not None else "avg"
         bl = "" if bl_chroms is None else "_bl"
-        smooth = "" if window_size is None else "_smooth"
+        smooth = "" if window_size is None else f"_ws={window_size}"
         outfiles = []
         for dset in self.dsets:
             filename = f"{basename}_{dset}_{strand}_strand{bl}{smooth}.{self.output_format}"
@@ -202,7 +205,7 @@ class Converter:
 
     @staticmethod
     def smooth_predictions(array, window_size):
-        """Smooth out the predictions with a 'running mean' and a given window size.
+        """Smooth out the predictions with a 'rolling mean' and a given window size.
         The specification 'mode=same' retains the original size of the array."""
         return np.convolve(array, np.ones(window_size) / window_size, mode="same").round(decimals=0)
 

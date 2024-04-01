@@ -137,8 +137,14 @@ def get_h5_data(input_dir, mode, dsets):
             # in the case of test data: only available datasets will be loaded into memory anyway
             for dset in dsets:
                 if dset not in dset_counter:
-                    raise ValueError(f"the dataset {dset} was not found in any {type_} h5 files, "
-                                     f"please only choose datasets that are available in your {type_} set")
+                    if type_ == "train":
+                        raise ValueError(f"the dataset {dset} was not found in any {type_} h5 files, "
+                                         f"please only choose datasets that are available in your {type_} set")
+                    else:
+                        # validation not containing one of the datasets might be okay in specific situations
+                        # like leave-one-out cross validation and multilabel training
+                        rank_zero_warn(f"The dataset {dset} was not found in any {type_} h5 files. "
+                                       f"If this is intentional you can ignore this message.")
 
         if len(skip_files) >= 1:
             rank_zero_info(f"The h5 file(s) {', '.join(skip_files)} don't contain the chosen/model's "

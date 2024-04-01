@@ -272,7 +272,7 @@ class ConverterParser(BaseParser):
                                       "the output files get 'bl' added at the end to identify blacklisting")
         self.parser.add_argument("--window-size", type=int, default=None,
                                  help="if specified will smooth out the raw predictions from the h5 file via a "
-                                      "'running mean' with the given window size; recommended window size: 150")
+                                      "'rolling mean' with the given window size")
 
     def check_args(self, args):
         if not os.path.exists(args.input_file):

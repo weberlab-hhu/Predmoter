@@ -91,7 +91,7 @@ def convert_to_table_line(spacing, contents):
     return "|".join(contents)
 
 
-def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=None, simple=False):
+def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=None, simple=False, peak_percent=False):
     if h5_file is None:
         chromosomes = extract_chrom_lengths(chrom_file)
         encoded = False
@@ -101,31 +101,45 @@ def main(h5_file, chrom_file, predicted_peaks, experimental_peaks, bl_chroms=Non
         encoded = True
         chromosome_file = h5_file
 
-    check_bed([predicted_peaks, experimental_peaks], chromosomes.keys(), chromosome_file, encoded=encoded)
+    # check bed files
+    if peak_percent:
+        check_bed([experimental_peaks], chromosomes.keys(), chromosome_file, encoded=encoded)
+    else:
+        check_bed([predicted_peaks, experimental_peaks], chromosomes.keys(), chromosome_file, encoded=encoded)
+
     if bl_chroms is not None:
         bl_chroms = np.loadtxt(bl_chroms, usecols=0, dtype=str)
         chromosomes = blacklist_chromosomes(chromosomes, bl_chroms, chromosome_file, encoded=encoded)
 
-    pred_peaks = extract_peaks(predicted_peaks)
     exp_peaks = extract_peaks(experimental_peaks)
-    
-    matrices = []
-    for c, length in chromosomes.items():
-        # compute a confusion matrix per sequence/chromosome
-        if h5_file is not None:
-            c = c.decode()  # was bytes string before when extracted out of a h5 file
-        pred = create_peak_array(c, length, pred_peaks)
-        true = create_peak_array(c, length, exp_peaks)
-        matrices.append(confusion_matrix(true, pred, labels=[0, 1]))
-
-    matrix = np.sum(matrices, axis=0)
-    tn, fp, fn, tp = matrix.ravel()
-    f1, precision, recall = compute_f1(tp, fp, fn)
-    if simple:
-        print(" ".join([str(item) for item in [f1, precision, recall, tp, fp, fn]]))
+    if peak_percent:
+        percents = []
+        for c, length in chromosomes.items():
+            # compute a confusion matrix per sequence/chromosome
+            if h5_file is not None:
+                c = c.decode()  # was bytes string before when extracted out of a h5 file
+            peaks = create_peak_array(c, length, exp_peaks)
+            percents.append((peaks[peaks == 1].shape[0]/peaks.shape[0]) * 100)  # percent of 1/peaks
+        print(f"peak percentage: {np.mean(np.array(percents)).round(decimals=4)}")
     else:
-        print(f"{convert_to_table_line(20, ['F1', 'Precision', 'Recall', 'TP', 'FP', 'FN'])}\n"
-              f"{convert_to_table_line(20, [f1, precision, recall, tp, fp, fn])}")
+        pred_peaks = extract_peaks(predicted_peaks)
+        matrices = []
+        for c, length in chromosomes.items():
+            # compute a confusion matrix per sequence/chromosome
+            if h5_file is not None:
+                c = c.decode()  # was bytes string before when extracted out of a h5 file
+            pred = create_peak_array(c, length, pred_peaks)
+            true = create_peak_array(c, length, exp_peaks)
+            matrices.append(confusion_matrix(true, pred, labels=[0, 1]))
+
+        matrix = np.sum(matrices, axis=0)
+        tn, fp, fn, tp = matrix.ravel()
+        f1, precision, recall = compute_f1(tp, fp, fn)
+        if simple:
+            print(" ".join([str(item) for item in [f1, precision, recall, tp, fp, fn]]))
+        else:
+            print(f"{convert_to_table_line(20, ['F1', 'Precision', 'Recall', 'TP', 'FP', 'FN'])}\n"
+                  f"{convert_to_table_line(20, [f1, precision, recall, tp, fp, fn])}")
 
 
 if __name__ == "__main__":
@@ -143,7 +157,7 @@ if __name__ == "__main__":
                         help="ONLY needed if no h5 file is available; a text file containing the sequence/chromosome "
                              "IDs of the species' genome assembly in the first column and the chromosome lengths in "
                              "the second column; the columns need to be whitespace separated")
-    parser.add_argument("--predicted-peaks", "-pp", type=str, default=None, required=True,
+    parser.add_argument("--predicted-peaks", "-pp", type=str, default=None,
                         help="called predicted peak bed file (MACS3 output)")
     parser.add_argument("--experimental-peaks", "-ep", type=str, default=None, required=True,
                         help="called experimental peak bed file (MACS3 output)")
@@ -151,10 +165,17 @@ if __name__ == "__main__":
                         help=r"blacklist file; a text file containing the sequence/chromosome IDs to exclude in"
                              r"the computation; the IDs need to be line separated (\n) (one ID per line)")
     parser.add_argument("--simple", action="store_true", help="non-fancy printing")
+    parser.add_argument("--peak-percentage", action="store_true",
+                        help="recovers percentage of peak percentages (percentage of positive class) from ONE bed file"
+                             " given via -ep")
     args = parser.parse_args()
 
     if args.h5_file is None and args.chromosome_lengths is None:
         raise OSError("either a h5 file or a chromosome legths text file is required")
 
+    if not args.peak_percentage:
+        assert args.predicted_peaks is not None,\
+            "in non-peak-percentage calculating mode a bed file with predicted peaks is required"
+
     main(args.h5_file, args.chromosome_lengths, args.predicted_peaks,
-         args.experimental_peaks, args.bl_file, args.simple)
+         args.experimental_peaks, args.bl_file, args.simple, args.peak_percentage)
