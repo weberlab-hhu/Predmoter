@@ -222,10 +222,10 @@ The heatmap should show a peak in front of/around the transcription start site (
 for ATAC-seq and behind the TSS for H3K4me3 ChIP-seq.   
      
 **ATAC-seq example of _Brachypodium distachyon_:**
-![](Brachypodium_distachyon_ATACseq.png)
+![](../images/Brachypodium_distachyon_ATACseq.png)
      
 **ChIP-seq example of _Brachypodium distachyon_:**
-![](Brachypodium_distachyon_ChIPseq.png)
+![](../images/Brachypodium_distachyon_ChIPseq.png)
      
 ### References
 - Arnold, K., Gosling, J., & Holmes, D. (2005). The Java programming language.

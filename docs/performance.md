@@ -102,8 +102,8 @@ to bigWig or bedGraph files is dependent on the amount of data, so the number of
 subsequences, that was used to quantify the wall time.
      
 ### Conversion from fasta to h5 files (Helixer)
-![](fasta2h5_benchmarking.png)
+![](../images/fasta2h5_benchmarking.png)
 ### Predicting one dataset
-![](predicting_one_dataset_benchmarking.png)
+![](../images/predicting_one_dataset_benchmarking.png)
 ### Predicting two datasets simultaneously
-![](predicting_two_datasets_benchmarking.png)
+![](../images/predicting_two_datasets_benchmarking.png)
