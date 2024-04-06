@@ -1,3 +1,2 @@
 # exclude jupyter notebook documentation files from language analysis
-visualization/Predmoter_figures.ipynb linguist-documentation
-predmoter/testdata/testdata_creation.ipynb linguist-documentation
+*.ipynb linguist-documentation
