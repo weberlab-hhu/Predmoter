@@ -25,7 +25,10 @@ Pretrained models can be found at: https://github.com/weberlab-hhu/predmoter_mod
        2. [Resume training](#432-resume-training)
        3. [Reproducibility](#433-reproducibility)
     4. [Testing](#44-testing)
-    5. [Inference (Predicting)](#45-inference)
+    5. [Inference](#45-inference)
+       1. [Predicting](#451-prediction)
+       2. [Smoothing predictions](#452-smoothing-predictions)
+       3. [Prediction results: useful tools](#453-useful-tools)
 5. [References](#references)
 6. [Citation](#citation)
 
@@ -283,6 +286,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 > differences in CPU and GPU predictions that, due to the rounding, do **not**
 > affect the final results.)
     
+#### 4.5.1 Predicting <a id="451-prediction"></a>
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
 > "-" strand per read), so predictions are as well. If a fasta file is used the chosen
@@ -352,6 +356,28 @@ and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k
 > ``predmoter.utilities.converter``, as pyBigWig is only available on Linux.
 > The only coverage file output possible would then be bedGraph files.
     
+
+#### 4.5.2 Smoothing predictions <a id="452-smoothing-predictions"></a>
+Sometimes it can be useful to smooth Predmoter's predictions (see
+https://github.com/weberlab-hhu/predmoter_models Section 2. Model performance).
+The smoothing of the raw predictions from the h5 file is applied via a
+'rolling mean' with a given window size. The smoothing is only applied per
+chromosome. Since reading all predictions for a large chromosome into RAM is,
+depending on the hardware, not feasible, the 'rolling mean' is always applied
+to a subsequence of a given chromosome. The length of this subsequence is defined
+as the 'maximum values allowed to be loaded into RAM', here 21,384,000 base
+pairs. The last subsequence is usually shorter. Smoothing can only be used with
+convert2coverage.py when converting from h5 to bigWig or bedGraph files.
+    
+**Command:**   
+```bash
+# convert h5 output file after prediction with smoothing
+convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
+--basename <basename> --window-size 150  # the window size is an example
+# optional: --prefix <prefix>
+```
+    
+#### 4.5.3 Prediction results: useful tools <a id="453-useful-tools"></a>
 Another helpful option to convert bigWig to bedGraph files and vice versa
 on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
     
@@ -392,7 +418,7 @@ Model-Based Analysis of ChIP-Seq (MACS). Genome Biology, 9(9) , 1–9.
 https://doi.org/10.1186/GB-2008-9-9-R137
     
 ## Citation <a id="citation"></a>
-Kindel, F., Triesch, S., Schlüter, U., Randarevitch, L. A., Reichel-Deland, V.,
-Weber, A. P. M., & Denton, A. K. (2023). Predmoter - Cross-species prediction of 
-plant promoter and enhancer regions. BioRxiv, 2023.11.03.565452.
-https://doi.org/10.1101/2023.11.03.565452
+Kindel, F., Triesch, S., Schlüter, U., Randarevitch, L.A., Reichel-Deland, V.,
+Weber, A.P.M., Denton, A.K. (2024) Predmoter—cross-species prediction of plant
+promoter and enhancer regions. Bioinformatics Advances, 4(1), vbae074.
+https://doi.org/10.1093/bioadv/vbae074

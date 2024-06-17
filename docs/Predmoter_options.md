@@ -66,3 +66,4 @@
 | --experimental      | add to convert the mean experimental coverage of a experimental h5 instead of predictions                                                                                 | /                 |
 | --datasets          | the dataset prefix(es) to convert when --experimental is set                                                                                                              | None              |
 | --blacklist-file    | text file of chromosomes/sequences that will not be included in the conversion, e.g., chloroplast or mitochondrial sequences; one chromosome ID per line in the text file | None              |
+| --window-size       | if specified will smooth out the raw predictions from the h5 file via a 'rolling mean' with the given window size                                                         | None              |
