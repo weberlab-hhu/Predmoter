@@ -14,7 +14,7 @@ Pretrained models can be found at: https://github.com/weberlab-hhu/predmoter_mod
 3. [Install](#3-install)
    1. [GPU requirements](#31-gpu-requirements)
    2. [Software requirements](#32-software-requirements)
-   3. [Installation guide](#33-installation-guide)
+   3. [Installation guide](#3-install)
       1. [Manual installation](#331-manual-installation)
       2. [Docker/Singularity](#332-dockersingularity)
 4. [Usage](#4-usage)
@@ -26,17 +26,17 @@ Pretrained models can be found at: https://github.com/weberlab-hhu/predmoter_mod
        3. [Reproducibility](#433-reproducibility)
     4. [Testing](#44-testing)
     5. [Inference](#45-inference)
-       1. [Predicting](#451-prediction)
+       1. [Predicting](#451-predicting)
        2. [Smoothing predictions](#452-smoothing-predictions)
-       3. [Prediction results: useful tools](#453-useful-tools)
+       3. [Prediction results: useful tools](#453-prediction-results-useful-tools)
 5. [References](#references)
 6. [Citation](#citation)
 
-## 1. Disclaimer <a id="1-disclaimer"></a>
+## 1. Disclaimer
 This software is undergoing active testing and development. Build on it at your
 own risk.     
     
-## 2. Aim <a id="2-aim"></a>
+## 2. Aim
 Cross-species prediction of plant promoter/enhancer regions in the DNA with
 Deep Neural Networks. ATAC-seq is a technique to assess genome-wide chromatin
 accessibility (open chromatin regions) (Buenrostro et al., 2013). Regulatory
@@ -45,8 +45,8 @@ regions. The histone ChIP-seq data, specifically H3K4me3, which is primarily
 present at active genes (Santos-Rosa et al., 2002), is used to give the network
 more context, partly improving the ATAC-seq predictions.        
     
-## 3. Install <a id="3-install"></a>
-### 3.1 GPU requirements <a id="31-gpu-requirements"></a>
+## 3. Install
+### 3.1 GPU requirements
 For realistically sized datasets, a GPU will be necessary for acceptable performance.
 (Predictions can be generated on a CPU with the
 [available models](https://github.com/weberlab-hhu/predmoter_models), but it will
@@ -57,7 +57,7 @@ performance.)
 The example below and all provided models should run on an Nvidia GPU with 11GB
 Memory (here a GTX 1080 Ti). The CPU used was E5-2640v4 (Broadwell).   
     
-### 3.2 Software requirements <a id="32-software-requirements"></a>
+### 3.2 Software requirements
 The code was always run on Linux (Ubuntu).   
     
 A known conflict leading to the program failing is using the listed Pytorch
@@ -79,15 +79,15 @@ Software versions:
 - **zlib**: 1.2.11 (for pyBigWig)
 - **libcurl**: 7.52.1 (for pyBigWig)
    
-### 3.3 Installation guide <a id="33-installation-guide"></a>
-#### 3.3.1 Manual installation <a id="331-manual-installation"></a>
+### 3.3 Installation
+#### 3.3.1 Manual installation
 For the manual installation see
 the [manual installation instructions](docs/manual_install.md).
     
-#### 3.3.2 Docker/Singularity <a id="332-dockersingularity"></a>
+#### 3.3.2 Docker/Singularity
 TBA
     
-## 4. Usage <a id="4-usage"></a>
+## 4. Usage
 >**NOTE**: Please keep the output files, especially the ``predmoter.log`` file,
 > as it contains valuable information on setups, models and data you used!
     
@@ -96,7 +96,7 @@ For a list of all Predmoter options see the
 For detailed information about performance see the
 [performance documentation](docs/performance.md).
     
-### 4.1 Directories <a id="41-directories"></a>
+### 4.1 Directories
 Predmoter chooses the input files according to the directory name. You need to
 provide an input directory (``-i <input_directory>``) that contains these folders:
 - **train**: the h5 files used as training set
@@ -107,7 +107,7 @@ using a trained model
 Predicting is only possible on single files. The parameter ``-f/--filepath`` needs
 to be used instead. (see [Predicting](#45-inference))
     
-### Input files
+### 4.2 Input files
 For more details see the [h5 file documentation](docs/h5_files.md).     
 The data used in this project is stored in h5 files. H5 files (also called HDF5,
 Hierarchical Data Format 5) are designed to store and organize large amounts of
@@ -155,8 +155,8 @@ ATAC- and ChIP-seq data.
 > as long as they are divisible by the chosen step (stride) to the power of the
 > chosen number of CNN layers. 
     
-### 4.3 Training <a id="43-training"></a>
-#### 4.3.1 Start training <a id="431-start-training"></a>
+### 4.3 Training
+#### 4.3.1 Start training
 Training of Predmoter is of right now deterministic and reproducible. This is
 achieved by using a seed. If no seed is provided Predmoter will choose a random
 seed. The seed state is saved each epoch and included in the saved model, so
@@ -212,7 +212,7 @@ avg_val_accuracy, avg_train_loss and avg_train_accuracy. The loss is the
 Poisson negative log likelihood loss and the "accuracy" the Pearson correlation
 coefficient.   
     
-#### 4.3.2 Resume training <a id="432-resume-training"></a>
+#### 4.3.2 Resume training
 >**NOTE**: Do not move your log files, change the prefix if one was chosen
 > or select a different input or output directory when you resume the training.
 ```bash
@@ -226,7 +226,7 @@ If no model checkpoint is given Predmoter will search for the model
 > 12 epochs, you define ``-e 15`` and you give it the last checkpoint as input,
 > it will only train for 3 more epochs and **not** for an additional 15!!
     
-## 4.3.3 Reproducibility <a id="433-reproducibility"></a>
+## 4.3.3 Reproducibility
 Predmoter is reproducible to a point. When you choose the exact same setup (including
 input data) and train for 3 epochs or for 2 epochs and then resume for 1 epoch, the
 results (metrics) will be identical. Setups known to screw with the reproducibility
@@ -250,7 +250,7 @@ using different hardware than before.
 >Issues with non-deterministic behavior of LSTMs weren't encountered so far
 > during training of Predmoter.
     
-### 4.4 Testing <a id="44-testing"></a>
+### 4.4 Testing
 Testing will be applied to all h5 files individually in ``<input_directory>/test``.    
 When testing on the CPU, the results very slightly differ from the GPU results
 (differences occurred after the third/fourth decimal place).    
@@ -277,7 +277,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 # optional: --prefix <prefix>
 ```
      
-### 4.5 Inference <a id="45-inference"></a>
+### 4.5 Inference
 > **IMPORTANT**: Models trained on a GPU can be used to generate predictions on the
 > CPU. The CPU predictions will be the same as the GPU predictions would be.
 > Predicting on the CPU will take longer.    
@@ -286,7 +286,7 @@ Predmoter.py -i <input_directory> -o <output_directory> -m test \
 > differences in CPU and GPU predictions that, due to the rounding, do **not**
 > affect the final results.)
     
-#### 4.5.1 Predicting <a id="451-prediction"></a>
+#### 4.5.1 Predicting
 Predictions will be applied to an individual fasta or h5 file only.
 > **NOTE**: The ATAC-seq input data was shifted (+4 bp on "+" strand and -5 bp on
 > "-" strand per read), so predictions are as well. If a fasta file is used the chosen
@@ -357,7 +357,7 @@ and the datasets the model predicted in the correct order (e.g., "atacseq", "h3k
 > The only coverage file output possible would then be bedGraph files.
     
 
-#### 4.5.2 Smoothing predictions <a id="452-smoothing-predictions"></a>
+#### 4.5.2 Smoothing predictions
 Sometimes it can be useful to smooth Predmoter's predictions (see
 https://github.com/weberlab-hhu/predmoter_models Section 2. Model performance).
 The smoothing of the raw predictions from the h5 file is applied via a
@@ -377,7 +377,7 @@ convert2coverage.py -i <predictions.h5> -o <output_directory> -of bigwig \
 # optional: --prefix <prefix>
 ```
     
-#### 4.5.3 Prediction results: useful tools <a id="453-useful-tools"></a>
+#### 4.5.3 Prediction results: useful tools
 Another helpful option to convert bigWig to bedGraph files and vice versa
 on Linux is using the binaries from [UCSC Genome Browser](http://hgdownload.soe.ucsc.edu/admin/exe/).    
     
@@ -401,7 +401,7 @@ macs3 bdgpeakcall -i <atac_seq.bg> -o <output.bed> --min-length 100 --max-gap 20
 macs3 bdgbroadcall -i <chip_seq.bg> -o <output.bed> -c 35 -C 15 -G 500
 ```
      
-## References <a id="references"></a>
+## References
 Buenrostro, J. D., Giresi, P. G., Zaba, L. C., Chang, H. Y., & Greenleaf,
 W. J. (2013). Transposition of native chromatin for fast and sensitive
 epigenomic profiling of open chromatin, DNA-binding proteins and nucleosome
@@ -417,7 +417,7 @@ Bernstein, B. E., Nussbaum, C., Myers, R. M., Brown, M., Li, W., Shirley, X. S. 
 Model-Based Analysis of ChIP-Seq (MACS). Genome Biology, 9(9) , 1–9.
 https://doi.org/10.1186/GB-2008-9-9-R137
     
-## Citation <a id="citation"></a>
+## Citation
 Kindel, F., Triesch, S., Schlüter, U., Randarevitch, L.A., Reichel-Deland, V.,
 Weber, A.P.M., Denton, A.K. (2024) Predmoter—cross-species prediction of plant
 promoter and enhancer regions. Bioinformatics Advances, 4(1), vbae074.
