@@ -49,7 +49,8 @@ def train(args, input_data, seq_len, bases, pin_mem, strategy):
                  Timeit(args.epochs)]
 
     trainer = pl.Trainer(callbacks=callbacks, devices=args.num_devices, accelerator=args.device, strategy=strategy,
-                         max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True)
+                         max_epochs=args.epochs, logger=False, enable_progress_bar=False, deterministic=True,
+                         use_distributed_sampler=False)
 
     # Initialize model
     # ----------------------
@@ -61,11 +62,14 @@ def train(args, input_data, seq_len, bases, pin_mem, strategy):
 
     # Training
     # ----------------------
+    distributed = True if args.num_devices > 1 else False
     train_loader = DataLoader(get_dataset(input_data["train"], "train", args.datasets, seq_len,
-                                          args.ram_efficient, args.blacklist), batch_size=args.batch_size,
+                                          args.ram_efficient, args.blacklist, distributed,
+                                          trainer.global_rank, trainer.world_size), batch_size=args.batch_size,
                               shuffle=True, pin_memory=pin_mem, num_workers=args.num_workers)
     val_loader = DataLoader(get_dataset(input_data["val"], "val", args.datasets, seq_len,
-                                        args.ram_efficient, args.blacklist), batch_size=args.batch_size,
+                                        args.ram_efficient, args.blacklist, distributed,
+                                        trainer.global_rank, trainer.world_size), batch_size=args.batch_size,
                             shuffle=False, pin_memory=pin_mem, num_workers=args.num_workers)
     rank_zero_info(f"Training started. Training on {args.num_devices} device(s). "
                    f"Resuming training: {args.resume_training}.")
